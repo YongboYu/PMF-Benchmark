@@ -1,0 +1,18 @@
+# config/model_configs/baseline_models.yaml
+naive_seasonal:
+  model_type: "naive_seasonal"
+  K: 1
+  seasonality: 7
+
+naive_drift:
+  model_type: "naive_drift"
+  window: 10
+
+naive_mean:
+  model_type: "naive_mean"
+  window: 10
+
+paths:
+  model_save_dir: "models/saved/baseline"
+  predictions_dir: "data/predictions/baseline"
+  evaluation_file: "results/baseline_evaluation.csv"
