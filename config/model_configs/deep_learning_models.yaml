@@ -1,0 +1,140 @@
+# config/model_configs/deep_learning_models.yaml
+common:
+  # Global parameters for all models
+  n_epochs: 100
+  batch_size: [32, 64, 128]
+  dropout: [0.1, 0.2, 0.3, 0.4, 0.5]
+  n_trials: 50
+
+  # Training configurations
+  training:
+    optimizer: "Adam"  # Options: ["Adam", "AdamW", "RMSprop", "SGD"]
+    optimizer_kwargs:
+      lr: [1e-5, 1e-4, 1e-3, 1e-2, 1e-1]
+#      lr: [0.0001, 0.001, 0.01]
+#      weight_decay: [0.0, 0.1, 0.2]
+    loss_fn: "MSE"  # Options: ["MSE", "MAE", "MAPE", "SMAPE"]
+#    scheduler: "ReduceLROnPlateau"  # Options: ["ReduceLROnPlateau", "StepLR", "CosineAnnealingLR"]
+#    scheduler_kwargs:
+#      mode: "min"
+#      patience: 10
+#      factor: 0.1
+
+  # Early stopping
+  early_stopping:
+    monitor: "val_loss"
+    patience: 15
+    min_delta: 0.001
+    mode: "min"
+
+  # Training length for RNN-based models (must be > input_chunk_length)
+  training_length: [48, 72, 96]
+
+  # Lags and horizon configuration with step intervals
+  lags:
+    horizon_1:
+      min_lag: 7
+      max_lag: 14
+      step: 1    # 1-step interval for horizon 1
+    horizon_3:
+      min_lag: 14
+      max_lag: 28
+      step: 2    # 2-step interval for horizon 3
+    horizon_7:
+      min_lag: 28
+      max_lag: 56
+      step: 4    # 4-step interval for horizon 7
+
+  horizons: [1, 3, 7]
+
+models:
+  rnn:
+    enabled: true
+    hyperparameter_ranges:
+      hidden_dim: [16, 32, 64, 128]
+      n_rnn_layers: [1, 2, 3]
+
+  lstm:
+    enabled: true
+    hyperparameter_ranges:
+      hidden_dim: [16, 32, 64, 128]
+      n_rnn_layers: [1, 2, 3]
+
+  gru:
+    enabled: true
+    hyperparameter_ranges:
+      hidden_dim: [16, 32, 64, 128]
+      n_rnn_layers: [1, 2, 3]
+
+  deepar:
+    enabled: true
+    hyperparameter_ranges:
+      model: "LSTM"
+      hidden_dim: [16, 32, 64, 128]
+      n_rnn_layers: [1, 2, 3]
+      likelihood: GaussianLikelihood()
+
+  nbeats:
+    enabled: true
+    hyperparameter_ranges:
+      num_stacks: [8, 10, 12, 16]
+      num_blocks: [1, 2, 3, 4]
+      num_layers: [2, 3, 4]
+      layer_widths: [32, 64, 128, 256]
+      expansion_coefficient_dim: [3, 5, 7, 9]
+      trend_polynomial_degree: [1, 2, 3, 4]
+
+  nhits:
+    enabled: true
+    hyperparameter_ranges:
+      num_stacks: [8, 10, 12, 16]
+      num_blocks: [1, 2, 3, 4]
+      num_layers: [2, 3, 4]
+      layer_widths: [32, 64, 128, 256]
+
+  tcn:
+    enabled: true
+    hyperparameter_ranges:
+      num_filters: [16, 32, 64, 128]
+      kernel_size: [2, 3, 4]
+      num_layers: [1, 2, 3, 4]
+      dilation_base: [2, 4]
+
+
+  transformer:
+    enabled: true
+    hyperparameter_ranges:
+      d_model: [16, 32, 64, 128]
+      nhead: [2, 4, 8]
+      num_encoder_layers: [1, 2, 3, 4]
+      num_decoder_layers: [1, 2, 3, 4]
+      dim_feedforward: [64, 128, 256]
+
+  tft:
+    enabled: true
+    hyperparameter_ranges:
+      hidden_size: [16, 32, 64, 128]
+      lstm_layers: [1, 2, 3, 4]
+      num_attention_heads: [1, 2, 4, 8]
+      hidden_continuous_size: [8, 16, 32]
+
+  dlinear:
+    enabled: true
+    hyperparameter_ranges:
+      kernel_size: [5, 15, 25, 35, 45]
+#      individual: [ true, false ]
+#      decomposition: [ 'moving_avg', 'trend' ]
+#      window_size: [ 7, 14, 28 ]
+
+  nlinear:
+    enabled: true
+    hyperparameter_ranges: null
+
+transformation:
+  type: "min-max"
+
+paths:
+  model_save_dir: "models/saved/deep_learning"
+  predictions_dir: "data/predictions/deep_learning"
+  evaluation_file: "results/deep_learning_evaluation.csv"
+#  tensorboard_dir: "runs/deep_learning"

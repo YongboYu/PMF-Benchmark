@@ -1,0 +1,23 @@
+project:
+  name: "time_series_benchmarks"
+  seed: 42
+  wandb_project: "ts_benchmarks"
+  description: "Time Series Forecasting Benchmarks"
+
+data:
+  train_ratio: 0.6
+  val_ratio: 0.2
+  test_ratio: 0.2
+  horizons: [1, 3, 7]
+  frequency: "D"  # Daily data
+
+paths:
+  data_dir: "data/raw"
+  model_save_dir: "models/saved"
+  predictions_dir: "data/predictions"
+  results_dir: "results"
+
+evaluation:
+  metrics: ["mae", "rmse", "mape"]
+  save_predictions: true
+  save_models: true
