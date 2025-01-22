@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="WebServers">
+    <option name="servers">
+      <webServer id="69562fe9-41c3-4358-b25c-f6f393069da1" name="vsc36274">
+        <fileTransfer rootFolder="/vsc-hard-mounts/leuven-data/362/vsc36274" accessType="SFTP" host="login.hpc.kuleuven.be" port="22" sshConfigId="69f4c105-7607-4570-ac53-e491de8a7476" sshConfig="vsc36274@login.hpc.kuleuven.be:22 key" keyPair="true">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" keepAliveTimeout="0" passiveMode="true" shareSSLContext="true" />
+          </advancedOptions>
+        </fileTransfer>
+      </webServer>
+    </option>
+  </component>
+</project>
