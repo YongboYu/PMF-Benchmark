@@ -1,0 +1,17 @@
+event_log:
+  filter_percentage: 0.0001
+  trim_percentage: 0.1
+  columns:
+    timestamp: "time:timestamp"
+    case_id: "case:concept:name"
+    activity: "concept:name"
+
+time_series:
+  intervals: ["1D", "1W", "1M"]
+  format: "parquet"
+
+paths:
+  raw_logs: "data/raw"
+  processed_logs: "data/processed"
+  df_dict: "data/df_dict"
+  time_series: "data/time_series"
