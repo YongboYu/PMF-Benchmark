@@ -1,8 +1,10 @@
 import pm4py
 import json
+import pandas as pd
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, List
 import logging
+from pm4py.objects.log.obj import EventLog
 
 
 class DFGenerator:
@@ -10,41 +12,65 @@ class DFGenerator:
         self.config = config
         self.logger = logging.getLogger(__name__)
 
-    def generate_df_dict(self, log: pm4py.objects.log.obj.EventLog) -> Dict[str, list]:
-        """Generate directly-follows dictionary from event log"""
+    def generate_df_relations(self, log, dataset: str):
+        """Generate and save DF relations"""
         try:
-            df_dict = {}
+            # Ensure log is an EventLog object
+            if not isinstance(log, EventLog):
+                log = pm4py.convert_to_event_log(log)
 
-            # Extract directly-follows relations
-            for case in log:
-                for i in range(len(case) - 1):
-                    current_activity = case[i]["concept:name"]
-                    next_activity = case[i + 1]["concept:name"]
-                    df_relation = f"{current_activity}->{next_activity}"
+            # Extract DF relations
+            df_dict = self._extract_df_relations(log)
 
-                    if df_relation not in df_dict:
-                        df_dict[df_relation] = []
-
-                    df_dict[df_relation].append({
-                        'start_time': case[i]["time:timestamp"],
-                        'end_time': case[i + 1]["time:timestamp"]
-                    })
+            # Save DF relations
+            self._save_df_relations(df_dict, dataset)
 
             return df_dict
 
         except Exception as e:
-            self.logger.error(f"Error generating DF dictionary: {e}")
+            self.logger.error(f"Error generating DF relations for {dataset}: {e}")
             raise
 
-    def save_df_dict(self, df_dict: Dict[str, list], dataset: str):
-        """Save DF dictionary to file"""
-        try:
-            output_path = Path(self.config['paths']['df_dict']) / f"{dataset}.json"
-            output_path.parent.mkdir(parents=True, exist_ok=True)
+    def _extract_df_relations(self, log) -> Dict[str, List[Dict]]:
+        """Extract directly-follows relations from log"""
+        df_dict = {}
 
-            with open(output_path, 'w') as f:
-                json.dump(df_dict, f, default=str)
+        # Iterate over each trace (case) in the log
+        for trace in log:
+            # Iterate over pairs of consecutive events in the trace
+            for i in range(len(trace) - 1):
+                event_a = trace[i]
+                event_b = trace[i + 1]
 
-        except Exception as e:
-            self.logger.error(f"Error saving DF dictionary: {e}")
-            raise
+                # Extract activity names and timestamps
+                activity_a = event_a[self.config['event_log']['columns']['activity']]
+                activity_b = event_b[self.config['event_log']['columns']['activity']]
+                start_time = event_a[self.config['event_log']['columns']['timestamp']]
+                end_time = event_b[self.config['event_log']['columns']['timestamp']]
+
+                # Calculate duration
+                duration = end_time - start_time
+
+                # Create DF relation key with space around arrow
+                df_key = f"{activity_a} -> {activity_b}"
+
+                # Initialize list if key doesn't exist
+                if df_key not in df_dict:
+                    df_dict[df_key] = []
+
+                # Append relation information
+                df_dict[df_key].append({
+                    'start_time': start_time,
+                    'end_time': end_time,
+                    'duration': duration
+                })
+
+        return df_dict
+
+    def _save_df_relations(self, df_dict: Dict[str, List[Dict]], dataset: str):
+        """Save DF relations to JSON"""
+        output_path = Path(self.config['paths']['interim']['df_relations'])
+        output_path.mkdir(parents=True, exist_ok=True)
+
+        with open(output_path / f'{dataset}.json', 'w') as f:
+            json.dump(df_dict, f, default=str, indent=4)

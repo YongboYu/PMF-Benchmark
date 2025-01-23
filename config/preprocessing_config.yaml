@@ -1,17 +1,33 @@
 event_log:
-  filter_percentage: 0.0001
-  trim_percentage: 0.1
+  filter_percentage: 0.0001  # Filter infrequent variants
+  trim_percentage: 0.1      # Trim log timespan
+  min_cases: 100           # Minimum number of cases
+  min_activities: 5        # Minimum activities per case
   columns:
     timestamp: "time:timestamp"
     case_id: "case:concept:name"
     activity: "concept:name"
+    resource: "org:resource"
 
 time_series:
-  intervals: ["1D", "1W", "1M"]
-  format: "parquet"
+  interval: "D"  # Daily aggregation
+  features:
+    univariate:
+      - df_relations
+    multivariate:
+      - activity_freq
+      - case_attrs
+      - df_patterns
+      - resource_util
 
 paths:
-  raw_logs: "data/raw"
-  processed_logs: "data/processed"
-  df_dict: "data/df_dict"
-  time_series: "data/time_series"
+  raw: "data/raw"
+  interim:
+    processed_logs: "data/interim/processed_logs"
+    df_relations: "data/interim/df_relations"
+    case_attributes: "data/interim/case_attributes"
+    activity_patterns: "data/interim/activity_patterns"
+    resource_patterns: "data/interim/resource_patterns"
+  processed:
+    univariate: "data/processed/univariate"
+    multivariate: "data/processed/multivariate"
