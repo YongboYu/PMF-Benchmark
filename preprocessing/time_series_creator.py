@@ -97,13 +97,28 @@ class TimeSeriesCreator:
 
     def _save_univariate_series(self, df_series: pd.DataFrame, dataset: str):
         """Save univariate time series"""
-        base_path = Path(self.config['paths']['processed']['univariate']) / dataset
+        base_path = Path(self.config['paths']['processed']['univariate'])
         base_path.mkdir(parents=True, exist_ok=True)
 
-        # Save time series
-        df_series.to_csv(base_path / 'df_relations.csv')
+        # Path to H5 file - single file for all datasets
+        h5_path = base_path / 'time_series_df.h5'
 
-        # Save metadata
+        # Save to H5 file - create if not exists, append if exists
+        if not h5_path.exists():
+            # First time - create new file
+            df_series.to_hdf(h5_path, key=dataset, mode='w', format='table')
+        else:
+            # File exists - append to it
+            df_series.to_hdf(h5_path, key=dataset, mode='a', format='table')
+
+        # Create dataset-specific directory
+        dataset_path = base_path / dataset
+        dataset_path.mkdir(parents=True, exist_ok=True)
+
+        # Save df_relations in dataset directory
+        df_series.to_csv(dataset_path / 'df_relations.csv')
+
+        # Save metadata in dataset directory
         metadata = {
             'dataset': dataset,
             'start_date': df_series.index[0].strftime('%Y-%m-%d'),
@@ -112,10 +127,10 @@ class TimeSeriesCreator:
             'frequency': 'D'  # Daily frequency
         }
 
-        with open(base_path / 'metadata.json', 'w') as f:
+        with open(dataset_path / 'metadata.json', 'w') as f:
             json.dump(metadata, f, indent=4)
 
-        # Save stats
+        # Save stats in dataset directory
         stats = {
             'mean': df_series.mean().to_dict(),
             'std': df_series.std().to_dict(),
@@ -123,7 +138,7 @@ class TimeSeriesCreator:
             'max': df_series.max().to_dict()
         }
 
-        with open(base_path / 'stats.json', 'w') as f:
+        with open(dataset_path / 'stats.json', 'w') as f:
             json.dump(stats, f, indent=4)
 
     def _save_multivariate_series(self, mv_series: Dict[str, pd.DataFrame],
