@@ -25,9 +25,8 @@ paths:
   interim:
     processed_logs: "data/interim/processed_logs"
     df_relations: "data/interim/df_relations"
-    case_attributes: "data/interim/case_attributes"
-    activity_patterns: "data/interim/activity_patterns"
-    resource_patterns: "data/interim/resource_patterns"
+#    case_attributes: "data/interim/case_attributes"
+#    activity_patterns: "data/interim/activity_patterns"
+#    resource_patterns: "data/interim/resource_patterns"
   processed:
-    univariate: "data/processed/univariate"
-    multivariate: "data/processed/multivariate"
+    time_series: "data/processed"

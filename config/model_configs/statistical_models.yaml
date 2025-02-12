@@ -1,7 +1,7 @@
 # config/model_configs/statistical_models.yaml
 models:
   auto_arima:
-    enabled: true
+    enabled: false
     params:
       seasonal: true
       m: 7  # Weekly seasonality
@@ -22,53 +22,41 @@ models:
       trend: "additive"      # ModelMode.ADDITIVE
       seasonal: "multiplicative"  # SeasonalityMode.MULTIPLICATIVE
       seasonal_periods: 7    # Weekly seasonality
-      damped: false
 
   tbats:
     enabled: true
     params:
-      use_trend: true
-      use_box_cox: false  # Box-Cox transformation handled separately
-      seasonal_periods: [7]  # Weekly seasonality
+      n_jobs: 4  # Explicitly set to number of available CPUs
+#      seasonal_periods: [ 7 ]
       use_arma_errors: true
-      n_jobs: -1  # Use all available cores
+      use_box_cox: false
+      use_trend: true
 
   theta:
     enabled: true
     params:
       theta: 2
-      season_mode: "multiplicative"
-      season_length: 7
+      season_mode: "additive"
 
   four_theta:
     enabled: true
     params:
       theta: 2
-      season_mode: "multiplicative"
-      season_length: 7
-      model_mode: "multiplicative"
+      season_mode: "additive"
+      model_mode: "additive"
 
   prophet:
-    enabled: true
+    enabled: false
     params:
       growth: "linear"
       seasonality_mode: "multiplicative"
       weekly_seasonality: true
-      yearly_seasonality: "auto"
+      yearly_seasonality: true
       daily_seasonality: false
-      uncertainty_samples: 1000
+#      uncertainty_samples: 1000
 
 common:
   seasonality: 7  # Weekly seasonality
   validation_criterion: "mae"
   n_jobs: -1  # Use all available cores for parallel processing
 
-transformation:
-  type: "box-cox"
-  offset: 1
-  epsilon: 1.0e-6
-
-paths:
-  model_save_dir: "models/saved/statistical"
-  predictions_dir: "data/predictions/statistical"
-  evaluation_file: "results/statistical_evaluation.csv"

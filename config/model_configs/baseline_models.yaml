@@ -1,3 +1,11 @@
+# config/model_configs/baseline_models.yaml
+model_type: "baseline"
+requires_optimization: false
+logging:
+  metrics: ["mae", "rmse"]
+  log_predictions: true
+  log_data_stats: true
+
 models:
   naive_mean:
     enabled: true
@@ -22,7 +30,3 @@ models:
     params:
       input_chunk_length: 7  # Window size for moving average
 
-paths:
-  model_save_dir: "models/saved/baseline"
-  predictions_dir: "data/predictions/baseline"
-  evaluation_file: "results/baseline_evaluation.csv"

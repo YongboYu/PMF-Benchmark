@@ -2,22 +2,36 @@ project:
   name: "time_series_benchmarks"
   seed: 42
   wandb_project: "ts_benchmarks"
-  description: "Time Series Forecasting Benchmarks"
-
-data:
-  train_ratio: 0.6
-  val_ratio: 0.2
-  test_ratio: 0.2
-  horizons: [1, 3, 7]
-  frequency: "D"  # Daily data
+  wandb:
+    enabled: true
+    log_predictions: true
+    log_hyperparams: true
+    tags: []
 
 paths:
-  data_dir: "data/raw"
-  model_save_dir: "models/saved"
-  predictions_dir: "data/predictions"
+  log_dir: "logs"
+  data_dir: "data"
   results_dir: "results"
 
+data:
+  simple_split: 0.8    # For baseline/statistical
+  test_split: 0.2      # For regression/deep_learning
+  val_split: 0.2       # For regression/deep_learning
+  frequency: "D"       # Daily data
+
+transformations:
+  statistical:
+    type: "log"
+    offset: 1
+    epsilon: 1.0e-6
+  deep_learning:
+    type: "min-max"
+  regression:
+    type: "none"
+  baseline:
+    type: "none"
+
 evaluation:
-  metrics: ["mae", "rmse", "mape"]
+  metrics: ["mae", "rmse"]
   save_predictions: true
   save_models: true
