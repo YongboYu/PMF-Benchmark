@@ -1,0 +1,7 @@
+{
+    "dataset": "RTFMP",
+    "start_date": "2002-06-01",
+    "end_date": "2011-01-17",
+    "n_relations": 43,
+    "frequency": "D"
+}

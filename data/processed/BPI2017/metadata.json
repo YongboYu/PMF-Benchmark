@@ -1,0 +1,7 @@
+{
+    "dataset": "BPI2017",
+    "start_date": "2016-02-10",
+    "end_date": "2016-12-24",
+    "n_relations": 21,
+    "frequency": "D"
+}
