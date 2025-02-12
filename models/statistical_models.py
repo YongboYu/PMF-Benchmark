@@ -7,77 +7,38 @@ from darts.models import (
     Prophet
 )
 from darts.utils.utils import ModelMode, SeasonalityMode
-
-import wandb
-
-
-class StatisticalModels:
-    def __init__(self):
-        self.models = {
-            "auto_arima": AutoARIMA(seasonal=True, m=7),
-            "exp_smoothing": ExponentialSmoothing(
-                trend=ModelMode.ADDITIVE,
-                seasonal=SeasonalityMode.MULTIPLICATIVE
-            ),
-            "tbats": TBATS(use_trend=True, use_box_cox=False),
-            "theta": Theta(theta=2),
-            "four_theta": FourTheta(theta=2),
-            "prophet": Prophet()
-        }
-
-    def train_and_predict(self, train, horizon: int):
-        predictions = {}
-        for name, model in self.models.items():
-            # Train univariate models on each component
-            component_preds = []
-            for component in train.components:
-                model.fit(train[component])
-                pred = model.predict(horizon)
-                component_preds.append(pred)
-
-            # Combine predictions
-            predictions[name] = component_preds
-            wandb.log({f"statistical_{name}_trained": True})
-
-        return predictions
-
-
-# models/statistical_models.py
-# models/statistical_models.py
-from darts.models import (
-    AutoARIMA,
-    ExponentialSmoothing,
-    TBATS,
-    Theta,
-    FourTheta,
-    Prophet
-)
-from darts.utils.utils import ModelMode, SeasonalityMode
 import wandb
 import yaml
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple
 import logging
+from utils.evaluation import Evaluator
+import time
+from utils.logging_manager import get_logging_manager
 
 
 class StatisticalModels:
-    def __init__(self, base_config_path: str = "config/base_config.yaml",
-                 model_config_path: str = "config/model_configs/statistical_models.yaml"):
-        # Load configurations
-        with open(base_config_path, 'r') as f:
-            self.base_config = yaml.safe_load(f)
-        with open(model_config_path, 'r') as f:
-            self.model_config = yaml.safe_load(f)
+    def __init__(self, config: Dict[str, Any], model_name: Optional[str] = None):
+        self.base_config = config
+        self.model_config = config['model_configs']['statistical_models']
+        self.evaluator = Evaluator(config)
 
         # Setup logging
-        logging.basicConfig(level=logging.INFO)
-        self.logger = logging.getLogger(__name__)
+        self.logger = get_logging_manager(config).get_logger(__name__)
 
         # Initialize models based on config
         self.models = {}
-        for model_name, model_info in self.model_config['models'].items():
-            if model_info['enabled']:
-                self.models[model_name] = self._initialize_model(model_name, model_info)
+        if model_name:
+            # Initialize single model if specified
+            model_info = self.model_config['models'].get(model_name)
+            if not model_info or not model_info['enabled']:
+                raise ValueError(f"Model {model_name} not found or not enabled")
+            self.models[model_name] = self._initialize_model(model_name, model_info)
+        else:
+            # Initialize all enabled models
+            for model_name, model_info in self.model_config['models'].items():
+                if model_info['enabled']:
+                    self.models[model_name] = self._initialize_model(model_name, model_info)
 
     def _initialize_model(self, model_name: str, model_info: Dict[str, Any]):
         """Initialize statistical model with parameters"""
@@ -91,21 +52,35 @@ class StatisticalModels:
                 # Convert string parameters to ModelMode enums
                 if 'trend' in params:
                     params['trend'] = (ModelMode.ADDITIVE
-                                       if params['trend'] == 'additive'
-                                       else ModelMode.MULTIPLICATIVE)
+                                     if params['trend'] == 'additive'
+                                     else ModelMode.MULTIPLICATIVE)
                 if 'seasonal' in params:
                     params['seasonal'] = (SeasonalityMode.ADDITIVE
-                                          if params['seasonal'] == 'additive'
-                                          else SeasonalityMode.MULTIPLICATIVE)
+                                        if params['seasonal'] == 'additive'
+                                        else SeasonalityMode.MULTIPLICATIVE)
                 return ExponentialSmoothing(**params)
 
             elif model_name == "tbats":
                 return TBATS(**params)
 
             elif model_name == "theta":
+                # Convert season_mode to SeasonalityMode enum
+                if 'season_mode' in params:
+                    params['season_mode'] = (SeasonalityMode.ADDITIVE
+                                           if params['season_mode'] == 'additive'
+                                           else SeasonalityMode.MULTIPLICATIVE)
                 return Theta(**params)
 
             elif model_name == "four_theta":
+                # Convert season_mode and model_mode to SeasonalityMode enum
+                if 'season_mode' in params:
+                    params['season_mode'] = (SeasonalityMode.ADDITIVE
+                                           if params['season_mode'] == 'additive'
+                                           else SeasonalityMode.MULTIPLICATIVE)
+                if 'model_mode' in params:
+                    params['model_mode'] = (ModelMode.ADDITIVE
+                                          if params['model_mode'] == 'additive'
+                                          else ModelMode.MULTIPLICATIVE)
                 return FourTheta(**params)
 
             elif model_name == "prophet":
@@ -118,49 +93,75 @@ class StatisticalModels:
             self.logger.error(f"Error initializing {model_name}: {str(e)}")
             raise
 
-    def train_and_predict(self, train, test, horizon: int) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-        """Train models and generate predictions"""
-        predictions = {}
-        model_info = {}
+    def get_model_names(self) -> list:
+        """Return list of enabled model names"""
+        return list(self.models.keys())
 
-        for name, model in self.models.items():
-            self.logger.info(f"Training {name} model...")
-            wandb.log({f"statistical_training_model": name})
+    def train_and_predict(self, model_name: str, train, val, test, transformer, 
+                         horizon: int, study: Optional[Any] = None) -> Dict[str, Any]:
+        """Train model and generate predictions for multivariate time series"""
+        self.logger.info(f"Training {model_name} model...")
+        wandb.log({f"statistical_training_model": model_name})
+        
+        start_time = time.time()
 
-            try:
-                # Train model
-                model.fit(train)
-
+        try:
+            model = self.models[model_name]
+            predictions = []
+            trained_models = []
+            
+            # Train separate model for each component
+            for component in train.components:
+                # Extract univariate series for current component
+                train_component = train[component]
+                test_component = test[component] if test is not None else None
+                val_component = val[component] if val is not None else None
+                
+                # Create new model instance for each component
+                component_model = self._initialize_model(model_name, self.model_config['models'][model_name])
+                
+                # Train model on component
+                component_model.fit(train_component)
+                
                 # Generate predictions
-                pred = model.predict(horizon)
-                predictions[name] = pred
+                pred = component_model.predict(len(test_component))
+                predictions.append(pred)
+                trained_models.append(component_model)
 
-                # Get model-specific information
-                model_info[name] = {
-                    "fitted": True,
-                    "model_type": name
-                }
+            # Combine component predictions into multivariate series
+            combined_predictions = predictions[0]
+            for pred in predictions[1:]:
+                combined_predictions = combined_predictions.stack(pred)
 
-                # Add specific model parameters if available
-                if hasattr(model, "get_params"):
-                    model_info[name]["parameters"] = model.get_params()
+            training_time = time.time() - start_time
 
-                # Save model if configured
-                if self.base_config['evaluation'].get('save_models', False):
-                    model_path = Path(self.model_config['paths']['model_save_dir']) / f"{name}_h{horizon}.pkl"
-                    model.save(model_path)
-                    model_info[name]["model_path"] = str(model_path)
+            # Get model-specific information
+            model_info = {
+                "fitted": True,
+                "model_type": model_name,
+                "n_components": len(train.components),
+                "training_time": training_time
+            }
 
-                # Log to wandb
-                wandb.log({
-                    f"statistical_{name}_trained": True,
-                    f"statistical_{name}_info": model_info[name]
-                })
+            # Add specific model parameters if available
+            if hasattr(model, "get_params"):
+                model_info["parameters"] = model.get_params()
 
-            except Exception as e:
-                error_msg = f"Error training {name}: {str(e)}"
-                self.logger.error(error_msg)
-                wandb.log({f"statistical_{name}_error": error_msg})
-                model_info[name] = {"error": error_msg}
+            # Log to wandb
+            wandb.log({
+                f"statistical_{model_name}_trained": True,
+                f"statistical_{model_name}_info": model_info
+            })
 
-        return predictions, model_info
+            return {
+                'predictions': combined_predictions,
+                'models': trained_models,
+                'model_info': model_info,
+                'training_time': training_time
+            }
+
+        except Exception as e:
+            error_msg = f"Error training {model_name}: {str(e)}"
+            self.logger.error(error_msg)
+            wandb.log({f"statistical_{model_name}_error": error_msg})
+            raise

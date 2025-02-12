@@ -1,4 +1,3 @@
-# models/deep_learning_models.py
 from darts.models import (
     RNNModel,
     NBEATSModel,
@@ -16,221 +15,330 @@ import optuna
 import wandb
 import yaml
 from pathlib import Path
-from typing import Dict, Any, Tuple, Optional
+from typing import Dict, Any, Optional, Union, List
 import logging
+from utils.optuna_manager import OptunaManager
+import numpy as np
+from darts import TimeSeries
+from optuna.visualization import plot_optimization_history, plot_param_importances, plot_parallel_coordinate, plot_pareto_front
+from utils.wandb_logger import WandbLogger
 
+logger = logging.getLogger(__name__)
 
 class DeepLearningModels:
-    def __init__(self, base_config_path: str = "config/base_config.yaml",
-                 model_config_path: str = "config/model_configs/deep_learning_models.yaml"):
-        # Load configurations
-        with open(base_config_path, 'r') as f:
-            self.base_config = yaml.safe_load(f)
+    def __init__(self, config: Union[Dict[str, Any], str]):
+        """Initialize deep learning models with configuration
+        
+        Args:
+            config: Either config dictionary or path to config file
+        """
+        if isinstance(config, str):
+            with open(config, 'r') as f:
+                self.config = yaml.safe_load(f)
+        else:
+            self.config = config
+            
+        # Load model-specific config
+        model_config_path = Path("config/model_configs/deep_learning_models.yaml")
         with open(model_config_path, 'r') as f:
             self.model_config = yaml.safe_load(f)
+            
+        self.full_config = self.config
+        self.config = self.model_config
+        
+        # Map model names to their Darts implementations
+        self.models = {
+            "rnn": {
+                "model": RNNModel,
+                "enabled": self.config['models']['rnn']['enabled'],
+                "params": self.config['models']['rnn']['hyperparameter_ranges']
+            },
+            "lstm": {
+                "model": RNNModel,  # LSTM is a type of RNN
+                "enabled": self.config['models']['lstm']['enabled'],
+                "params": self.config['models']['lstm']['hyperparameter_ranges']
+            },
+            "gru": {
+                "model": RNNModel,  # GRU is a type of RNN
+                "enabled": self.config['models']['gru']['enabled'],
+                "params": self.config['models']['gru']['hyperparameter_ranges']
+            },
+            "deepar": {
+                "model": RNNModel,  # DeepAR uses RNN base
+                "enabled": self.config['models']['deepar']['enabled'],
+                "params": self.config['models']['deepar']['hyperparameter_ranges']
+            },
+            "nbeats": {
+                "model": NBEATSModel,
+                "enabled": self.config['models']['nbeats']['enabled'],
+                "params": self.config['models']['nbeats']['hyperparameter_ranges']
+            },
+            "nhits": {
+                "model": NHiTSModel,
+                "enabled": self.config['models']['nhits']['enabled'],
+                "params": self.config['models']['nhits']['hyperparameter_ranges']
+            },
+            "tcn": {
+                "model": TCNModel,
+                "enabled": self.config['models']['tcn']['enabled'],
+                "params": self.config['models']['tcn']['hyperparameter_ranges']
+            },
+            "transformer": {
+                "model": TransformerModel,
+                "enabled": self.config['models']['transformer']['enabled'],
+                "params": self.config['models']['transformer']['hyperparameter_ranges']
+            },
+            "tft": {
+                "model": TFTModel,
+                "enabled": self.config['models']['tft']['enabled'],
+                "params": self.config['models']['tft']['hyperparameter_ranges']
+            },
+            "dlinear": {
+                "model": DLinearModel,
+                "enabled": self.config['models']['dlinear']['enabled'],
+                "params": self.config['models']['dlinear']['hyperparameter_ranges']
+            },
+            "nlinear": {
+                "model": NLinearModel,
+                "enabled": self.config['models']['nlinear']['enabled'],
+                "params": self.config['models']['nlinear']['hyperparameter_ranges']
+            }
+        }
+        
+        self.optuna_manager = OptunaManager(self.full_config)
+        self.wandb_logger = None
 
-        # Setup logging
-        logging.basicConfig(level=logging.INFO)
-        self.logger = logging.getLogger(__name__)
+        # Set device and force float32 precision
+        if torch.backends.mps.is_available():
+            self.device = torch.device("mps")
+            torch.set_default_dtype(torch.float32)
+        elif torch.cuda.is_available():
+            self.device = torch.device("cuda")
+        else:
+            self.device = torch.device("cpu")
+        logger.info(f"Using device: {self.device}")
 
-        # Create directories
-        for path in self.model_config['paths'].values():
-            Path(path).mkdir(parents=True, exist_ok=True)
-
-        # Set device
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.logger.info(f"Using device: {self.device}")
-
-    def _get_model_class(self, model_name: str):
-        """Get the appropriate model class"""
-        return {
-            "rnn": RNNModel,
-            "lstm": RNNModel,
-            "gru": RNNModel,
-            "deepar": RNNModel,
-            "nbeats": NBEATSModel,
-            "nhits": NHiTSModel,
-            "tcn": TCNModel,
-            "transformer": TransformerModel,
-            "tft": TFTModel,
-            "dlinear": DLinearModel,
-            "nlinear": NLinearModel
-        }[model_name]
-
-    def _get_model_params(self, trial: optuna.Trial, model_name: str, common_params: dict) -> dict:
-        """Get model-specific parameters"""
-        model_params = self.model_config['models'][model_name]['hyperparameter_ranges']
-        params = common_params.copy()
+    def _get_model_params(self, trial: optuna.Trial, model_name: str, horizon: int) -> Dict[str, Any]:
+        """Get hyperparameters for a specific model from Optuna trial"""
+        params = {}
+        param_ranges = self.models[model_name]["params"]
+        
+        # Get input chunk length configuration
+        input_chunk_config = self.config['common']['input_chunk_length']
+        possible_input_lengths = list(range(
+            input_chunk_config['min_length'],
+            input_chunk_config['max_length'] + 1,
+            input_chunk_config['step_size']
+        ))
+        
+        # Set input_chunk_length for all models
+        input_chunk_length = trial.suggest_categorical('input_chunk_length', possible_input_lengths)
+        params['input_chunk_length'] = input_chunk_length
+        
+        # Handle RNN-based models (RNN, LSTM, GRU, DeepAR)
+        rnn_based_models = ['rnn', 'lstm', 'gru', 'deepar']
+        if model_name in rnn_based_models:
+            params['training_length'] = input_chunk_length + horizon
+        
+        # Set output_chunk_length for non-RNN models
+        if model_name not in rnn_based_models:
+            params['output_chunk_length'] = horizon
+        
+        # Common parameters for all models
+        params['batch_size'] = trial.suggest_categorical('batch_size', self.config['common']['batch_size'])
+        params['n_epochs'] = self.config['common']['n_epochs']
+        
+        # Add dropout only for models that support it (exclude DLinear and NLinear)
+        if model_name not in ['dlinear', 'nlinear']:
+            params['dropout'] = trial.suggest_categorical('dropout', self.config['common']['dropout'])
+        
+        # Set optimizer parameters directly in model parameters
+        # params['optimizer_cls'] = self.config['common']['training']['optimizer']
+        params['optimizer_kwargs'] = {
+            'lr': trial.suggest_categorical('lr', self.config['common']['training']['optimizer_kwargs']['lr'])
+        }
 
         # Get model-specific parameters
-        for param_name, param_range in model_params.items():
-            params[param_name] = trial.suggest_categorical(param_name, param_range)
+        if param_ranges:
+            for param_name, param_values in param_ranges.items():
+                if isinstance(param_values, list):
+                    params[param_name] = trial.suggest_categorical(param_name, param_values)
+                elif isinstance(param_values, tuple):
+                    if any(isinstance(v, float) for v in param_values):
+                        params[param_name] = trial.suggest_float(param_name, *param_values)
+                    else:
+                        params[param_name] = trial.suggest_int(param_name, *param_values)
 
         return params
 
-    def _objective(self, trial: optuna.Trial, model_name: str, train, val, horizon: int, transformer)  -> float:
+    def objective(self, trial: optuna.Trial, model_name: str, model_class,
+                 train, val, horizon: int, transformer) -> float:
         """Optuna objective function for hyperparameter optimization"""
-        # Get horizon-specific lag range with step interval
-        horizon_key = f"horizon_{horizon}"
-        lag_config = self.model_config['common']['lags'][horizon_key]
-
-        # Create list of possible lag values based on min, max, and step
-        lag_values = list(range(
-            lag_config['min_lag'],
-            lag_config['max_lag'] + 1,
-            lag_config['step']
-        ))
-
-        # Common parameters
-        common_params = {
-            'input_chunk_length': trial.suggest_categorical('input_chunk_length', lag_values),
-            'output_chunk_length': horizon,
-            'batch_size': trial.suggest_categorical('batch_size',
-                                                    self.model_config['common']['batch_size']),
-            'n_epochs': self.model_config['common']['n_epochs'],
-            'dropout': trial.suggest_categorical('dropout',
-                                                 self.model_config['common']['dropout']),
-            'optimizer_kwargs': {
-                'lr': trial.suggest_categorical('lr',
-                                                self.model_config['common']['optimizer_kwargs']['lr'])
-            }
-        }
-
-        # Get model-specific parameters
-        params = self._get_model_params(trial, model_name, common_params)
-
-        # Add training_length for RNN-based models
-        if model_name in ['rnn', 'lstm', 'gru', 'deepar']:
-            training_length = trial.suggest_categorical('training_length',
-                                                        self.model_config['common']['training_length'])
-            # Ensure training_length is larger than input_chunk_length
-            while training_length <= params['input_chunk_length']:
-                training_length *= 2
-            params['training_length'] = training_length
-
         try:
-            # Initialize model
-            model_class = self._get_model_class(model_name)
-            model = model_class(
-                **params,
-                random_state=self.base_config['project']['seed'],
-                force_reset=True,
-                save_checkpoints=True,
-                pl_trainer_kwargs={
-                    "accelerator": "gpu" if torch.cuda.is_available() else "cpu",
-                    "devices": 1
-                }
-            )
-
-            # Train model
+            params = self._get_model_params(trial, model_name, horizon)
+            model = model_class(**params)
             model.fit(train, val_series=val)
-            val_pred = model.predict(len(val))
-
-            # Inverse transform predictions and validation data before scoring
-            val_pred_original = transformer.inverse_transform(val_pred)
-            val_original = transformer.inverse_transform(val)
-
-            # Calculate MAE on original scale
-            val_score = mae(val_original, val_pred_original)
-
+            val_pred = model.predict(n=len(val))
+            val_score = mae(val, val_pred)
+            
+            # Log metrics and parameters
+            if self.wandb_logger is not None:
+                self.wandb_logger.log_trial_metrics(
+                    metrics={
+                        'mae': val_score,
+                        'trial_number': trial.number,
+                        'state': 'running'
+                    },
+                    params={
+                        **params,
+                        'trial_number': trial.number
+                    },
+                    model_name=model_name
+                )
+            
             return val_score
-
+            
         except Exception as e:
-            self.logger.error(f"Trial failed: {str(e)}")
-            return float('inf')
+            logger.error(f"Trial {trial.number} failed: {str(e)}")
+            raise optuna.exceptions.TrialPruned()
 
-    def _train_final_model(self, model_name: str, params: dict, train, val, horizon: int) -> object:
-        """Train final model with best parameters"""
-        model_class = self._get_model_class(model_name)
+    def _ensure_float32(self, data):
+        """Ensure data is in float32 format"""
+        if isinstance(data, TimeSeries):
+            return data.astype(np.float32)
+        return data
 
-        # Add common parameters that weren't part of the optimization
-        final_params = {
-            **params,
-            'random_state': self.base_config['project']['seed'],
-            'force_reset': True,
-            'save_checkpoints': True,
-            'pl_trainer_kwargs': {
-                "accelerator": "gpu" if torch.cuda.is_available() else "cpu",
-                "devices": 1
+    def train_and_predict(self, model_name: str, train, val, test, transformer,
+                         horizon: int, dataset: str, study: Optional[optuna.Study] = None,
+                         wandb_logger: WandbLogger = None) -> Dict[str, Any]:
+        """Train model and generate predictions"""
+        if not self.models[model_name]["enabled"]:
+            logger.info(f"Model {model_name} is disabled in config")
+            return {}
+
+        # Set wandb_logger as instance attribute
+        self.wandb_logger = wandb_logger
+        
+        if wandb_logger:
+            wandb_logger.log_metrics({"current_model": model_name}, prefix="training")
+        
+        try:
+            # Convert data to float32
+            train = self._ensure_float32(train)
+            if val is not None:
+                val = self._ensure_float32(val)
+            test = self._ensure_float32(test)
+
+            # Create study using OptunaManager if not provided
+            if study is None:
+                study = self.optuna_manager.create_study(
+                    dataset=dataset,
+                    horizon=horizon,
+                    model_group='deep_learning',
+                    model_name=model_name
+                )
+            
+            # Get wandb callback if logger is provided
+            wandb_callback = None
+            if wandb_logger is not None:
+                wandb_callback = wandb_logger.log_optuna_study(study, model_name, dataset, horizon)
+            
+            # Run optimization with callback if available
+            optimize_args = {
+                'func': lambda trial: self.objective(
+                    trial,
+                    model_name,
+                    self.models[model_name]["model"],
+                    train,
+                    val,
+                    horizon,
+                    transformer
+                ),
+                'n_trials': self.config['common']['n_trials'],
+                'catch': (Exception,)
             }
-        }
+            
+            if wandb_callback is not None:
+                optimize_args['callbacks'] = [wandb_callback]
+            
+            study.optimize(**optimize_args)
 
-        # Initialize and train model
-        model = model_class(**final_params)
-        model.fit(train, val_series=val)
+            if wandb_logger is not None:
+                wandb_logger.log_study_results(study, model_name, dataset, horizon)
 
-        # Save model if configured
-        if self.base_config['evaluation'].get('save_models', False):
-            model_path = Path(self.model_config['paths']['model_save_dir']) / f"{model_name}_h{horizon}.pt"
-            model.save(model_path)
+            # Get the best parameters and train final model
+            best_params = study.best_params
+            
+            # Handle RNN-based models (RNN, LSTM, GRU, DeepAR)
+            rnn_based_models = ['rnn', 'lstm', 'gru', 'deepar']
+            if model_name in rnn_based_models:
+                # For RNN-based models, directly set training_length = input_chunk_length + horizon
+                best_params['training_length'] = best_params['input_chunk_length'] + horizon
 
-        return model
+            # Set output_chunk_length for non-RNN models
+            if model_name not in rnn_based_models:
+                best_params['output_chunk_length'] = horizon
 
-    def train_and_predict(self, train, val, test, transformer) -> Dict[str, Dict[str, Any]]:
-        """Train models and generate predictions for each horizon"""
-        results = {}
+            # Add common parameters from config
+            best_params['n_epochs'] = self.config['common']['n_epochs']
 
-        for horizon in self.model_config['common']['horizons']:
-            self.logger.info(f"\nTraining models for horizon {horizon}")
-            predictions = {}
-            best_params = {}
+            # Extract lr and move it to optimizer_kwargs
+            if 'lr' in best_params:
+                lr = best_params.pop('lr')
+                best_params['optimizer_kwargs'] = {'lr': lr}
 
-            for model_name in self.model_config['models'].keys():
-                if not self.model_config['models'][model_name]['enabled']:
-                    continue
-
-                self.logger.info(f"Training {model_name} model...")
-                wandb.log({
-                    f"dl_training_model": model_name,
-                    f"horizon": horizon
+            # Create and train final model
+            final_model = self.models[model_name]["model"](**best_params)
+            combined_train = train.concatenate(val) if val is not None else train
+            final_model.fit(combined_train)
+            predictions = final_model.predict(n=len(test))
+            
+            # Log the study results
+            if wandb_logger:
+                wandb_logger.log_study_results(study, model_name, dataset, horizon)
+            
+            # Log detailed metrics
+            if wandb_logger:
+                training_time = study.trials[-1].duration.total_seconds() if study.trials else 0
+                wandb_logger.log_metrics({
+                    'mae': study.best_value,
+                    'n_trials': len(study.trials),
+                    'training_time': training_time,
+                    'input_chunk_length': best_params.get('input_chunk_length'),
+                    'batch_size': best_params.get('batch_size'),
+                    'n_epochs': best_params.get('n_epochs'),
+                    'learning_rate': best_params.get('optimizer_kwargs', {}).get('lr')
+                }, prefix=model_name)
+                
+                # Log model artifacts
+                wandb_logger.log_model_artifacts(model_name, {
+                    'best_params': best_params,
+                    'best_value': study.best_value,
+                    'n_trials': len(study.trials),
+                    'model_type': str(self.models[model_name]["model"].__name__),
+                    'device': str(self.device),
+                    'training_time': training_time
                 })
+                
+                # Log predictions visualization
+                wandb_logger.log_predictions(predictions, test, model_name)
 
-                try:
-                    # Optimize hyperparameters
-                    study = optuna.create_study(direction="minimize")
-                    study.optimize(
-                        lambda trial: self._objective(trial, model_name, train, val, horizon, transformer),
-                        n_trials=self.model_config['common']['n_trials']
-                    )
-
-                    # Get best parameters
-                    best_params[model_name] = study.best_params
-
-                    # Train final model with best parameters
-                    final_model = self._train_final_model(
-                        model_name=model_name,
-                        params=best_params[model_name],
-                        train=train,
-                        val=val,
-                        horizon=horizon
-                    )
-
-                    # Generate predictions
-                    pred = final_model.predict(len(test))
-                    predictions[model_name] = pred
-
-                    # Log to wandb
-                    wandb.log({
-                        f"dl_{model_name}_h{horizon}_best_params": best_params[model_name],
-                        f"dl_{model_name}_h{horizon}_trained": True
-                    })
-
-                except Exception as e:
-                    error_msg = f"Error training {model_name}: {str(e)}"
-                    self.logger.error(error_msg)
-                    wandb.log({f"dl_{model_name}_h{horizon}_error": error_msg})
-
-            results[f"horizon_{horizon}"] = {
-                "predictions": predictions,
-                "best_params": best_params
+            return {
+                'predictions': predictions,
+                'model': final_model,
+                'best_params': best_params,
+                'study': study
             }
+            
+        except Exception as e:
+            logger.error(f"An error occurred during training and prediction: {e}")
+            if wandb_logger:
+                wandb_logger.log_metrics({
+                    "error": str(e),
+                    "failed": True
+                }, prefix=model_name)
+            return {}
 
-        return results
-
-    def load_model(self, model_name: str, horizon: int) -> Optional[object]:
-        """Load a saved model if it exists"""
-        model_path = Path(self.model_config['paths']['model_save_dir']) / f"{model_name}_h{horizon}.pt"
-        if model_path.exists():
-            model_class = self._get_model_class(model_name)
-            return model_class.load(model_path)
-        return None
+    def get_model_names(self) -> List[str]:
+        """Return list of enabled model names"""
+        return [name for name, info in self.models.items() if info["enabled"]]

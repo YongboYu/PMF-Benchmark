@@ -7,27 +7,43 @@ from darts.models import (
 import wandb
 import yaml
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Union, List
+import time
 
 
 class BaselineModels:
-    def __init__(self, base_config_path: str = "config/base_config.yaml",
-                 model_config_path: str = "config/model_configs/baseline_models.yaml"):
+    def __init__(self, config: Union[Dict[str, Any], str], model_name: Optional[str] = None):
+        """Initialize baseline models.
+
+        Args:
+            config: Either config dictionary or path to base config file
+            model_name: Optional name of a specific model to initialize
+        """
         # Load configurations
-        with open(base_config_path, 'r') as f:
-            self.base_config = yaml.safe_load(f)
-        with open(model_config_path, 'r') as f:
-            self.model_config = yaml.safe_load(f)
+        if isinstance(config, dict):
+            self.base_config = config
+            self.model_config = config['model_configs']['baseline_models']
+        else:
+            with open(config, 'r') as f:
+                self.base_config = yaml.safe_load(f)
+            with open(Path(config).parent / 'model_configs' / 'baseline_models.yaml', 'r') as f:
+                self.model_config = yaml.safe_load(f)
 
-        # Create directories
-        for path in self.model_config['paths'].values():
-            Path(path).mkdir(parents=True, exist_ok=True)
-
-        # Initialize models based on config
+        # Initialize models
         self.models = {}
-        for model_name, model_info in self.model_config['models'].items():
-            if model_info['enabled']:
-                self.models[model_name] = self._initialize_model(model_name, model_info)
+        if model_name:
+            # Initialize single model if specified
+            model_info = self.model_config['models'].get(model_name)
+            if not model_info or not model_info['enabled']:
+                raise ValueError(f"Model {model_name} not found or not enabled")
+            self.models[model_name] = self._initialize_model(model_name, model_info)
+        else:
+            # Initialize all enabled models
+            for model_name, model_info in self.model_config['models'].items():
+                if model_info['enabled']:
+                    self.models[model_name] = self._initialize_model(model_name, model_info)
+
+        self.training_time = 0
 
     def _initialize_model(self, model_name: str, model_info: Dict[str, Any]):
         """Initialize baseline model with or without parameters"""
@@ -46,33 +62,47 @@ class BaselineModels:
         else:
             raise ValueError(f"Unknown model: {model_name}")
 
-    def train_and_predict(self, train, test, horizon: int, transformer) -> Dict[str, Any]:
-        """Train models and generate predictions"""
-        predictions = {}
+    def train_and_predict(self, model_name: str, train, val, test, transformer,
+                          horizon: int, study: Optional[Any] = None) -> Dict[str, Any]:
+        """Train models and generate predictions
 
-        for name, model in self.models.items():
-            wandb.log({f"baseline_training_model": name})
+        Args:
+            model_name: Name of the specific model to train
+            train: Training data
+            val: Validation data (not used for baseline models)
+            test: Test data
+            transformer: Data transformer (not used for baseline models)
+            horizon: Forecast horizon
+            study: Optional; Optuna study (not used for baseline models)
 
-            try:
-                # Train model
-                model.fit(train)
+        Returns:
+            Dictionary containing predictions, trained model, and training info
+        """
+        start_time = time.time()
 
-                # Generate predictions
-                pred = model.predict(horizon)
-                predictions[name] = pred
+        try:
+            model = self.models[model_name]
+            # Train model
+            model.fit(train)
 
-                # Save predictions
-                pred_path = Path(self.model_config['paths']['predictions_dir']) / f"{name}_h{horizon}.csv"
-                pred.to_csv(pred_path)
+            # Generate predictions
+            pred = model.predict(len(test))
 
-                # Log to wandb
-                wandb.log({
-                    f"baseline_{name}_trained": True,
-                    f"baseline_{name}_predictions_saved": str(pred_path)
-                })
+            # Store results
+            training_time = time.time() - start_time
+            return {
+                'predictions': pred,
+                'model': model,
+                'training_time': training_time,
+                'model_name': model_name
+            }
 
-            except Exception as e:
-                print(f"Error training {name}: {str(e)}")
-                wandb.log({f"baseline_{name}_error": str(e)})
+        except Exception as e:
+            error_msg = f"Error training {model_name}: {str(e)}"
+            print(error_msg)
+            wandb.log({f"baseline_{model_name}_error": error_msg})
+            raise
 
-        return predictions
+    def get_model_names(self) -> List[str]:
+        """Get list of enabled model names."""
+        return list(self.models.keys())

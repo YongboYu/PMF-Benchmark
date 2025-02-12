@@ -1,339 +1,231 @@
+import logging
+from pathlib import Path
+from typing import Dict, Any, Tuple, Optional, List, Union
+import yaml
+import time
+
+import optuna
+import wandb
 from darts.models import (
     LinearRegressionModel,
     RandomForest,
     XGBModel,
     LightGBMModel
 )
+from utils.optuna_manager import OptunaManager
+from darts.metrics import mae
+from utils.wandb_logger import WandbLogger
+
 # from sklearn.linear_model import LinearRegression
 # from sklearn.ensemble import RandomForestRegressor
 # from xgboost import XGBRegressor
 # from lightgbm import LGBMRegressor
-import optuna
-import wandb
-from typing import Dict, Any, Tuple
 
+logger = logging.getLogger(__name__)
 
 class RegressionModels:
-    def __init__(self):
-        """Initialize regression models for both univariate and multivariate forecasting"""
+    def __init__(self, config: Union[Dict[str, Any], str]):
+        """Initialize regression models with configuration
+        
+        Args:
+            config: Either config dictionary or path to config file
+        """
+        # Load configurations
+        if isinstance(config, dict):
+            self.config = config['model_configs']['regression_models']
+            self.full_config = config  # Store full config for OptunaManager
+        else:
+            with open(config, 'r') as f:
+                self.config = yaml.safe_load(f)
+                self.full_config = self.config
+            
+        # Initialize OptunaManager
+        self.optuna_manager = OptunaManager(self.full_config)
+        
+        # Map model names to their Darts implementations
         self.models = {
             "linear": {
                 "model": LinearRegressionModel,
+                "enabled": self.config['models']['linear']['enabled'],
                 "params": {}
             },
             "random_forest": {
                 "model": RandomForest,
-                "params": {
-                    "n_estimators": (100, 500),
-                    "max_depth": (3, 10),
-                    "min_samples_split": (2, 10)
-                }
+                "enabled": self.config['models']['random_forest']['enabled'],
+                "params": self.config['models']['random_forest']['hyperparameter_ranges']
             },
             "xgboost": {
                 "model": XGBModel,
-                "params": {
-                    "n_estimators": (100, 500),
-                    "max_depth": (3, 10),
-                    "learning_rate": (0.01, 0.1),
-                    "subsample": (0.6, 1.0)
-                }
+                "enabled": self.config['models']['xgboost']['enabled'],
+                "params": self.config['models']['xgboost']['hyperparameter_ranges']
             },
             "lightgbm": {
                 "model": LightGBMModel,
-                "params": {
-                    "n_estimators": (100, 500),
-                    "max_depth": (3, 10),
-                    "learning_rate": (0.01, 0.1),
-                    "num_leaves": (20, 100)
-                }
+                "enabled": self.config['models']['lightgbm']['enabled'],
+                "params": self.config['models']['lightgbm']['hyperparameter_ranges']
             }
         }
+
+        self.wandb_logger = None
+
+    def _get_model_params(self, trial: optuna.Trial, model_name: str, horizon: int) -> Dict[str, Any]:
+        """Get hyperparameters for a specific model from Optuna trial"""
+        params = {}
+        param_ranges = self.models[model_name]["params"]
+        
+        # Get lags as a hyperparameter to optimize
+        min_lag = self.config['common']['lags']['min_lag']
+        max_lag = self.config['common']['lags']['max_lag']
+        step_size = self.config['common']['lags']['step_size']
+        
+        # Create list of possible lag values
+        possible_lags = list(range(min_lag, max_lag + 1, step_size))
+        
+        # Always include lags for all models
+        params['lags'] = trial.suggest_categorical('lags', possible_lags)
+        
+        # Always add output_chunk_length parameter (not optimized)
+        params['output_chunk_length'] = horizon
+        
+        # Get model-specific hyperparameters
+        if param_ranges:
+            for param_name, param_values in param_ranges.items():
+                if isinstance(param_values, list):
+                    params[param_name] = trial.suggest_categorical(param_name, param_values)
+                elif isinstance(param_values, tuple):
+                    if any(isinstance(v, float) for v in param_values):
+                        params[param_name] = trial.suggest_float(param_name, *param_values)
+                    else:
+                        params[param_name] = trial.suggest_int(param_name, *param_values)
+                    
+        return params
 
     def objective(self, trial: optuna.Trial, model_name: str, model_class,
-                  train, val, horizon: int) -> float:
+                 train, val, horizon: int) -> float:
         """Optuna objective function for hyperparameter optimization"""
-        # Get parameter ranges for the specific model
-        param_ranges = self.models[model_name]["params"]
-        params = {}
-
-        # Define parameters based on model type
-        if model_name == "random_forest":
-            params = {
-                "n_estimators": trial.suggest_int("n_estimators", *param_ranges["n_estimators"]),
-                "max_depth": trial.suggest_int("max_depth", *param_ranges["max_depth"]),
-                "min_samples_split": trial.suggest_int("min_samples_split",
-                                                       *param_ranges["min_samples_split"])
-            }
-        elif model_name in ["xgboost", "lightgbm"]:
-            params = {
-                "n_estimators": trial.suggest_int("n_estimators", *param_ranges["n_estimators"]),
-                "max_depth": trial.suggest_int("max_depth", *param_ranges["max_depth"]),
-                "learning_rate": trial.suggest_float("learning_rate",
-                                                     *param_ranges["learning_rate"],
-                                                     log=True)
-            }
-            if model_name == "xgboost":
-                params["subsample"] = trial.suggest_float("subsample",
-                                                          *param_ranges["subsample"])
-            else:  # lightgbm
-                params["num_leaves"] = trial.suggest_int("num_leaves",
-                                                         *param_ranges["num_leaves"])
-
-        # Create and train model
-        regressor = model_class(**params)
-        model = RegressionModel(
-            model=regressor,
-            lags=12  # You might want to make this configurable
-        )
-
         try:
-            model.fit(train, val_series=val)
-            val_pred = model.predict(n=horizon)
-            val_score = model.evaluate(val, val_pred)
-            return val_score
-        except Exception as e:
-            print(f"Trial failed: {str(e)}")
-            return float('inf')
+            params = self._get_model_params(trial, model_name, horizon)
+            model = model_class(**params)
+            model.fit(train)
+            val_pred = model.predict(n=len(val))
 
-    def train_and_predict(self, train, val, test, horizon: int,
-                          multivariate: bool = True) -> Tuple[Dict, Dict]:
-        """
-        Train models and generate predictions
-        Args:
-            multivariate: If True, train on multivariate data; if False, train separate models for each component
-        """
-        predictions = {}
-        best_params = {}
-
-        for name, model_info in self.models.items():
-            wandb.log({f"regression_training_model": name})
-
-            if name == "linear":
-                # Linear regression doesn't need optimization
-                regressor = model_info["model"]()
-                model = RegressionModel(model=regressor, lags=12)
-
-                if multivariate:
-                    model.fit(train, val_series=val)
-                    pred = model.predict(horizon)
-                    predictions[name] = pred
-                else:
-                    # Train separate models for each component
-                    component_preds = []
-                    for component in train.components:
-                        model.fit(train[component], val_series=val[component] if val is not None else None)
-                        pred = model.predict(horizon)
-                        component_preds.append(pred)
-                    predictions[name] = component_preds
-
-                best_params[name] = model.model.get_params()
-
-            else:
-                # Optimize hyperparameters
-                study = optuna.create_study(direction="minimize")
-                study.optimize(
-                    lambda trial: self.objective(trial, name, model_info["model"],
-                                                 train, val, horizon),
-                    n_trials=50
+            val_score = mae(val, val_pred)
+            
+            # Log metrics and parameters
+            if self.wandb_logger is not None:
+                self.wandb_logger.log_trial_metrics(
+                    metrics={'mae': val_score},
+                    params=params,
+                    model_name=model_name
                 )
-
-                # Train final model with best parameters
-                best_params[name] = study.best_params
-                regressor = model_info["model"](**study.best_params)
-                model = RegressionModel(model=regressor, lags=12)
-
-                if multivariate:
-                    model.fit(train, val_series=val)
-                    pred = model.predict(horizon)
-                    predictions[name] = pred
-                else:
-                    # Train separate models for each component
-                    component_preds = []
-                    for component in train.components:
-                        model.fit(train[component], val_series=val[component] if val is not None else None)
-                        pred = model.predict(horizon)
-                        component_preds.append(pred)
-                    predictions[name] = component_preds
-
-            # Log to wandb
-            wandb.log({
-                f"regression_{name}_best_params": best_params[name],
-                f"regression_{name}_trained": True
-            })
-
-        return predictions, best_params
-
-
-# models/regression_models.py
-from darts.models import RegressionModel
-from sklearn.linear_model import LinearRegression
-from sklearn.ensemble import RandomForestRegressor
-from xgboost import XGBRegressor
-from lightgbm import LGBMRegressor
-import optuna
-import wandb
-import yaml
-from pathlib import Path
-from typing import Dict, Any, Tuple, Optional
-import logging
-from utils.lag_utils import get_lags_for_horizon
-
-
-class RegressionModels:
-    def __init__(self, base_config_path: str = "config/base_config.yaml",
-                 model_config_path: str = "config/model_configs/regression_models.yaml"):
-        # Load configurations
-        with open(base_config_path, 'r') as f:
-            self.base_config = yaml.safe_load(f)
-        with open(model_config_path, 'r') as f:
-            self.model_config = yaml.safe_load(f)
-
-        # Setup logging
-        logging.basicConfig(level=logging.INFO)
-        self.logger = logging.getLogger(__name__)
-
-        # Create directories
-        for path in self.model_config['paths'].values():
-            Path(path).mkdir(parents=True, exist_ok=True)
-
-        # Initialize model classes
-        self.models = {
-            "linear": {
-                "model": LinearRegression,
-                "params": self.model_config['models']['linear']['params']
-            },
-            "random_forest": {
-                "model": RandomForestRegressor,
-                "params": self.model_config['models']['random_forest']
-            },
-            "xgboost": {
-                "model": XGBRegressor,
-                "params": self.model_config['models']['xgboost']
-            },
-            "lightgbm": {
-                "model": LGBMRegressor,
-                "params": self.model_config['models']['lightgbm']
-            }
-        }
-
-    def _objective(self, trial: optuna.Trial, model_name: str, model_class,
-                   train, val, horizon: int, transformer) -> float:
-        """Optuna objective function for hyperparameter optimization"""
-        # Get parameter ranges from config
-        param_ranges = self.models[model_name]['params']['hyperparameter_ranges']
-        params = {}
-
-        # Define parameters based on model type
-        if model_name == "random_forest":
-            params = {
-                "n_estimators": trial.suggest_categorical("n_estimators", param_ranges["n_estimators"]),
-                "max_depth": trial.suggest_categorical("max_depth", param_ranges["max_depth"]),
-                "min_samples_split": trial.suggest_categorical("min_samples_split",
-                                                               param_ranges["min_samples_split"])
-            }
-        elif model_name == "xgboost":
-            params = {
-                "n_estimators": trial.suggest_categorical("n_estimators", param_ranges["n_estimators"]),
-                "max_depth": trial.suggest_categorical("max_depth", param_ranges["max_depth"]),
-                "learning_rate": trial.suggest_categorical("learning_rate", param_ranges["learning_rate"]),
-                "subsample": trial.suggest_categorical("subsample", param_ranges["subsample"])
-            }
-        elif model_name == "lightgbm":
-            params = {
-                "n_estimators": trial.suggest_categorical("n_estimators", param_ranges["n_estimators"]),
-                "max_depth": trial.suggest_categorical("max_depth", param_ranges["max_depth"]),
-                "learning_rate": trial.suggest_categorical("learning_rate", param_ranges["learning_rate"]),
-                "num_leaves": trial.suggest_categorical("num_leaves", param_ranges["num_leaves"])
-            }
-
-        try:
-            # Get lags based on horizon
-            lags = get_lags_for_horizon(horizon, self.model_config['common'])
-
-            # Create and train model
-            regressor = model_class(**params)
-            model = RegressionModel(
-                model=regressor,
-                lags=lags
-            )
-
-            model.fit(train, val_series=val)
-            val_pred = model.predict(len(val))
-            val_score = model.evaluate(val, val_pred)
+            
             return val_score
-
         except Exception as e:
-            self.logger.error(f"Trial failed: {str(e)}")
-            return float('inf')
+            logger.error(f"Trial {trial.number} failed: {str(e)}")
+            raise optuna.exceptions.TrialPruned()
 
-    def train_and_predict(self, train, val, test, horizon: int, transformer) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-        """Train models and generate predictions"""
-        predictions = {}
+    def train_and_predict(self, model_name: str, train, val, test, transformer,
+                         horizon: int, dataset: str, study: Optional[optuna.Study] = None,
+                         wandb_logger: WandbLogger = None) -> Dict[str, Any]:
+        """Train model and generate predictions"""
+        # Set wandb_logger as instance attribute
+        self.wandb_logger = wandb_logger
+
+        if not self.models[model_name]["enabled"]:
+            logger.info(f"Model {model_name} is disabled in config")
+            return {}
+
+        wandb.log({f"regression_training_model": model_name})
         best_params = {}
 
-        for name, model_info in self.models.items():
-            self.logger.info(f"Training {name} model...")
-            wandb.log({f"regression_training_model": name})
+        try:
+            # Create study using OptunaManager if not provided
+            if study is None:
+                study = self.optuna_manager.create_study(
+                    dataset=dataset,
+                    horizon=horizon,
+                    model_group='regression',
+                    model_name=model_name
+                )
+            
+            # Get wandb callback if logger is provided
+            wandb_callback = None
+            if wandb_logger is not None:
+                wandb_callback = wandb_logger.log_optuna_study(study, model_name, dataset, horizon)
+            
+            # Run optimization with callback if available
+            optimize_args = {
+                'func': lambda trial: self.objective(
+                    trial,
+                    model_name,
+                    self.models[model_name]["model"],
+                    train,
+                    val,
+                    horizon
+                ),
+                'n_trials': self.config['common']['n_trials'],
+                'catch': (Exception,)
+            }
+            
+            if wandb_callback is not None:
+                optimize_args['callbacks'] = [wandb_callback]
+            
+            study.optimize(**optimize_args)
 
-            try:
-                # Get lags based on horizon
-                lags = get_lags_for_horizon(horizon, self.model_config['common'])
+            # Log study results after optimization
+            if wandb_logger is not None:
+                wandb_logger.log_study_results(study, model_name, dataset, horizon)
 
-                if name == "linear":
-                    # Linear regression doesn't need optimization
-                    regressor = model_info["model"]()
-                    model = RegressionModel(
-                        model=regressor,
-                        lags=lags
-                    )
+            # Get the best parameters if available
+            if study.best_trial is not None:
+                best_params = study.best_params
+                best_params['output_chunk_length'] = horizon
+                
+                if 'lags' not in best_params:
+                    best_params['lags'] = study.best_trial.params.get('lags')
 
-                    model.fit(train, val_series=val)
-                    pred = model.predict(len(test))
-                    predictions[name] = pred
-                    best_params[name] = model.model.get_params()
+                # Combine train and validation sets for final training
+                combined_train = train
+                if val is not None:
+                    combined_train = train.concatenate(val)
 
-                else:
-                    # Optimize hyperparameters
-                    study = optuna.create_study(direction="minimize")
-                    study.optimize(
-                        lambda trial: self._objective(trial, name, model_info["model"],
-                                                      train, val, horizon),
-                        n_trials=self.model_config['common']['n_trials']
-                    )
+                # Train final model on combined data
+                model = self.models[model_name]["model"](**best_params)
+                model.fit(combined_train)
+                pred = model.predict(n=len(test))
 
-                    # Train final model with best parameters
-                    best_params[name] = study.best_params
-                    regressor = model_info["model"](**study.best_params)
-                    model = RegressionModel(
-                        model=regressor,
-                        lags=lags
-                    )
-
-                    model.fit(train, val_series=val)
-                    pred = model.predict(len(test))
-                    predictions[name] = pred
-
-                # Save model if configured
-                if self.base_config['evaluation'].get('save_models', False):
-                    model_path = Path(self.model_config['paths']['model_save_dir']) / f"{name}_h{horizon}.pkl"
-                    model.save(model_path)
-
-                # Log to wandb
                 wandb.log({
-                    f"regression_{name}_best_params": best_params[name],
-                    f"regression_{name}_trained": True
+                    f"regression_{model_name}_best_params": best_params,
+                    f"regression_{model_name}_trained": True,
+                    f"regression_{model_name}_n_trials": len(study.trials),
+                    f"regression_{model_name}_best_value": study.best_value
                 })
 
-            except Exception as e:
-                error_msg = f"Error training {name}: {str(e)}"
-                self.logger.error(error_msg)
-                wandb.log({f"regression_{name}_error": error_msg})
+                return {
+                    'predictions': pred,
+                    'model': model,
+                    'best_params': best_params,
+                    'study': study
+                }
+            
+            # Return empty results if no successful trials
+            return {
+                'predictions': None,
+                'model': None,
+                'best_params': {},
+                'study': study
+            }
 
-        return predictions, best_params
+        except Exception as e:
+            error_msg = f"Error training {model_name}: {str(e)}"
+            logger.error(error_msg)
+            wandb.log({
+                f"regression_{model_name}_error": error_msg,
+                f"regression_{model_name}_failed": True
+            })
+            raise
 
-    def load_model(self, model_name: str, horizon: int) -> Optional[RegressionModel]:
-        """Load a saved model if it exists"""
-        model_path = Path(self.model_config['paths']['model_save_dir']) / f"{model_name}_h{horizon}.pkl"
-        if model_path.exists():
-            return RegressionModel.load(model_path)
-        return None
+    def get_model_names(self) -> list:
+        """Return list of enabled model names"""
+        return [name for name, info in self.models.items() if info["enabled"]]
+
