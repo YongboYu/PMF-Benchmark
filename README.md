@@ -56,7 +56,7 @@ time_series_benchmarks/
 │   └── run_experiments.sh          # Experiment execution script
 │
 ├── notebooks/                       # Jupyter notebooks
-│   ├── check_intermittency.ipynb   # Check for intermittent DF time series
+│   └── check_intermittency.ipynb   # Check for intermittent DF time series
 │
 ├── data/                            # Data directory
 │   ├── raw/                        # Raw event logs
