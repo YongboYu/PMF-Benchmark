@@ -26,9 +26,6 @@ class EventLogProcessor:
             # Filter infrequent variants
             filtered_log = self._filter_variants(log)
 
-            # # Filter by minimum cases and activities
-            # filtered_log = self._filter_min_requirements(filtered_log)
-
             # Add artificial start/end events
             processed_log = self._add_artificial_events(filtered_log)
 
@@ -63,15 +60,6 @@ class EventLogProcessor:
             min_coverage_percentage=self.config['event_log']['filter_percentage']
         )
 
-    # def _filter_min_requirements(self, log) -> pm4py.objects.log.obj.EventLog:
-    #     """Filter by minimum cases and activities"""
-    #     filtered_log = pm4py.filter_log(lambda case:
-    #                                     len(case) >= self.config['event_log']['min_activities'], log)
-    #
-    #     if len(filtered_log) < self.config['event_log']['min_cases']:
-    #         raise ValueError(f"Log has fewer than {self.config['event_log']['min_cases']} cases")
-    #
-    #     return filtered_log
 
     def _trim_timespan(self, log) -> pm4py.objects.log.obj.EventLog:
         """Trim log timespan"""

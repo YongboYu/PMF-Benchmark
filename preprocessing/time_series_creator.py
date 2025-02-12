@@ -10,25 +10,16 @@ class TimeSeriesCreator:
         self.config = config
         self.logger = logging.getLogger(__name__)
 
-    # def create_time_series(self, df_dict: Dict, patterns: Dict[str, pd.DataFrame],
-    #                        start_time: pd.Timestamp, end_time: pd.Timestamp,
-    #                        dataset: str):
     def create_time_series(self, df_dict: Dict,
                            start_time: pd.Timestamp, end_time: pd.Timestamp,
                            dataset: str):
         """Create and save time series data"""
         try:
-            # Create univariate time series
+            # Create time series
             df_series = self._create_df_time_series(
                 df_dict, start_time, end_time
             )
-            self._save_univariate_series(df_series, dataset)
-
-            # # Create multivariate time series
-            # mv_series = self._create_multivariate_series(
-            #     patterns, df_series, start_time, end_time
-            # )
-            # self._save_multivariate_series(mv_series, dataset)
+            self._save_time_series(df_series, dataset)
 
             self.logger.info(f"Created time series for dataset: {dataset}")
 
@@ -63,41 +54,9 @@ class TimeSeriesCreator:
 
         return df_series
 
-    def _create_multivariate_series(self, patterns: Dict[str, pd.DataFrame],
-                                    df_series: pd.DataFrame,
-                                    start_time: pd.Timestamp,
-                                    end_time: pd.Timestamp) -> Dict[str, pd.DataFrame]:
-        """Create multivariate time series"""
-        mv_series = {}
-
-        # Activity frequency series
-        act_patterns = patterns['activity_patterns']
-        mv_series['activity_freq'] = self._aggregate_by_time(
-            act_patterns, 'activity', start_time, end_time
-        )
-
-        # Case attributes series
-        case_attrs = patterns['case_attributes']
-        mv_series['case_attrs'] = self._aggregate_case_attributes(
-            case_attrs, start_time, end_time
-        )
-
-        # Resource utilization series
-        resource_patterns = patterns['resource_patterns']
-        mv_series['resource_util'] = self._aggregate_resource_patterns(
-            resource_patterns, start_time, end_time
-        )
-
-        # Combined DF patterns
-        mv_series['df_patterns'] = self._combine_patterns(
-            df_series, mv_series, start_time, end_time
-        )
-
-        return mv_series
-
-    def _save_univariate_series(self, df_series: pd.DataFrame, dataset: str):
-        """Save univariate time series"""
-        base_path = Path(self.config['paths']['processed']['univariate'])
+    def _save_time_series(self, df_series: pd.DataFrame, dataset: str):
+        """Save time series data"""
+        base_path = Path(self.config['paths']['processed']['time_series'])
         base_path.mkdir(parents=True, exist_ok=True)
 
         # Path to H5 file - single file for all datasets
