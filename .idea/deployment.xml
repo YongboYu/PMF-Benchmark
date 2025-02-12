@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
-  <component name="PublishConfigData" serverName="vsc36274" remoteFilesAllowedToDisappearOnAutoupload="false" showNewOnSourceInSync="false">
+  <component name="PublishConfigData" serverName="vsc36274" remoteFilesAllowedToDisappearOnAutoupload="false">
     <serverData>
       <paths name="vsc36274">
         <serverdata>
           <mappings>
-            <mapping deploy="/PMF_Benchmark" local="$PROJECT_DIR$" web="/" />
+            <mapping deploy="/PMF_Benchmark_2025" local="$PROJECT_DIR$" web="/" />
           </mappings>
         </serverdata>
       </paths>
