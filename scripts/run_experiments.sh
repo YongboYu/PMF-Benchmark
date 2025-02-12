@@ -3,55 +3,67 @@
 
 # SLURM parameters
 #SBATCH --job-name=ts_forecast
-#SBATCH --output=logs/slurm_%A_%a.out
-#SBATCH --error=logs/slurm_%A_%a.err
-#SBATCH --array=0-15  # 16 total jobs (4 model groups × 4 datasets)
+#SBATCH --output=logs/slurm/%x_%A_%a.o
+#SBATCH --error=logs/slurm/%x_%A_%a.e
+#SBATCH --cluster=genius
+#SBATCH --partition=gpu_p100
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
+#SBATCH --gpus-per-node=1
 #SBATCH --mem=32G
 #SBATCH --time=24:00:00
-#SBATCH --gres=gpu:1  # Request 1 GPU for deep learning models
-
-# Create arrays of parameters
-datasets=("BPI2019_1" "BPI2019_2" "BPI2019_3" "BPI2019_4")
-model_groups=("baseline" "statistical" "regression" "deep_learning")
-time_interval="1-day"
-
-# Calculate indices for dataset and model_group
-dataset_idx=$((SLURM_ARRAY_TASK_ID / 4))
-model_group_idx=$((SLURM_ARRAY_TASK_ID % 4))
-
-# Get current dataset and model_group
-dataset=${datasets[$dataset_idx]}
-model_group=${model_groups[$model_group_idx]}
+#SBATCH --account=lp_lirisnlp
+#SBATCH --mail-type=BEGIN,END,FAIL
+#SBATCH --mail-user=yongbo.yu@student.kuleuven.be
+#SBATCH --array=0-8  # 3 datasets × 3 horizons = 9 jobs
 
 # Load required modules
-module load python/3.8
-module load cuda/11.3  # Adjust version as needed
+module purge
+source $VSC_DATA/miniconda3/etc/profile.d/conda.sh
+conda activate pmf-benchmark
+export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$LD_LIBRARY_PATH
 
-# Activate virtual environment
-source /path/to/your/venv/bin/activate
+# Create arrays of parameters
+datasets=("RTFMP" "BPI2019" "BPI2020")
+horizons=(1 3 7)
 
-# Set different resource configurations based on model group
-if [ "$model_group" = "deep_learning" ]; then
-    # Deep learning models need GPU
-    export CUDA_VISIBLE_DEVICES=0
-elif [ "$model_group" = "statistical" ]; then
-    # Statistical models need more CPU
-    export MKL_NUM_THREADS=4
-    export NUMEXPR_NUM_THREADS=4
-    export OMP_NUM_THREADS=4
-else
-    # Baseline and regression models need less resources
-    export MKL_NUM_THREADS=2
-    export NUMEXPR_NUM_THREADS=2
-    export OMP_NUM_THREADS=2
-fi
+# Calculate indices
+dataset_idx=$((SLURM_ARRAY_TASK_ID / ${#horizons[@]}))
+horizon_idx=$((SLURM_ARRAY_TASK_ID % ${#horizons[@]}))
 
-# Run the training script
+# Get current parameters
+dataset=${datasets[$dataset_idx]}
+horizon=${horizons[$horizon_idx]}
+
+# Create scratch directory with unique name per array task
+JOB_SCRATCH_DIR="$VSC_SCRATCH/pmf_benchmark_${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}"
+mkdir -p $JOB_SCRATCH_DIR
+
+# Copy project files
+rsync -av --exclude='.git' --exclude='data/raw' --exclude='data/interim' \
+    $VSC_DATA/PMF_Benchmark_2025/ $JOB_SCRATCH_DIR/
+
+cd $JOB_SCRATCH_DIR
+
+# Set resource configurations
+export MKL_NUM_THREADS=$SLURM_CPUS_PER_TASK
+export NUMEXPR_NUM_THREADS=$SLURM_CPUS_PER_TASK
+export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
+export CUDA_VISIBLE_DEVICES=0
+
+# Run all models for current dataset and horizon
 python train.py \
     --dataset "$dataset" \
-    --time_interval "$time_interval" \
-    --model_group "$model_group" \
+    --model_group "all" \
+    --horizon "$horizon" \
     --config "config/base_config.yaml"
+
+# Copy results back
+rsync -av $JOB_SCRATCH_DIR/results/ $VSC_DATA/PMF_Benchmark_2025/results/
+rsync -av $JOB_SCRATCH_DIR/logs/ $VSC_DATA/PMF_Benchmark_2025/logs/
+
+# Cleanup
+rm -rf $JOB_SCRATCH_DIR
+
+echo "All jobs completed successfully!"
