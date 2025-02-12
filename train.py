@@ -1,9 +1,9 @@
 """Train time series forecasting models.
 
 Usage:
-    Single model: python train.py --dataset your_dataset --model_group statistical --model prophet --horizon 1
-    All models in group: python train.py --dataset your_dataset --model_group statistical --horizon 1
-    All models: python train.py --dataset your_dataset --model_group all --horizon 1
+    Single model: python train.py --dataset dataset_name --model_group statistical --model prophet --horizon 1
+    All models in group: python train.py --dataset dataset_name --model_group statistical --horizon 1
+    All models: python train.py --dataset dataset_name --model_group all --horizon 1
 """
 
 import yaml
