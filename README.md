@@ -376,7 +376,10 @@ _**❗Note: The following sections are for internal sharing purposes and will be
    - Handle the error in Optuna callback
    - Enhance visualization logging of model training
 
-
+5. **Data Preprocessing**
+   - Improve the logging details for preprocessing stage in `logs/data_preprocess/`
+   - Investigate the preprocessing pipeline and parameter settings
+   
 ### Upcoming Features
 
 1. **Model Enhancements 📍**
