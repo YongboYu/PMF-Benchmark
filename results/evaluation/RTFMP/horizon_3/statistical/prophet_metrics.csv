@@ -1,0 +1,2 @@
+dataset,horizon,model,mae,rmse
+RTFMP,3,statistical_prophet,11.859525765348042,22.108271464872338

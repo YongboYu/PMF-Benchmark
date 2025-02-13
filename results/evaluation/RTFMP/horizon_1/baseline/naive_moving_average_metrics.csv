@@ -1,0 +1,2 @@
+dataset,horizon,model,mae,rmse
+RTFMP,1,baseline_naive_moving_average,3.705078730352193,16.07232469320638

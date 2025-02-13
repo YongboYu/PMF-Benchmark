@@ -1,0 +1,235 @@
+{
+    "dataset": "RTFMP",
+    "last_updated": "2025-02-11 21:16:05",
+    "horizons": {
+        "1": {
+            "last_updated": "2025-02-11 21:16:05",
+            "model_groups": {
+                "baseline": {
+                    "last_updated": "2025-02-04 13:20:55",
+                    "models": {
+                        "naive_mean": {
+                            "metrics": {
+                                "mae": 5.301265657262714,
+                                "rmse": 16.08118007719906
+                            },
+                            "training_time": 0.00145721435546875,
+                            "timestamp": "2025-02-04 13:20:27"
+                        },
+                        "persistence": {
+                            "metrics": {
+                                "mae": 3.7860538827258323,
+                                "rmse": 16.302052261705587
+                            },
+                            "training_time": 0.001455068588256836,
+                            "timestamp": "2025-02-04 13:20:34"
+                        },
+                        "naive_seasonal": {
+                            "metrics": {
+                                "mae": 3.7816312239708108,
+                                "rmse": 16.168465401906243
+                            },
+                            "training_time": 0.0017757415771484375,
+                            "timestamp": "2025-02-04 13:20:41"
+                        },
+                        "naive_drift": {
+                            "metrics": {
+                                "mae": 3.8640690744095383,
+                                "rmse": 16.37200059125298
+                            },
+                            "training_time": 0.0015099048614501953,
+                            "timestamp": "2025-02-04 13:20:47"
+                        },
+                        "naive_moving_average": {
+                            "metrics": {
+                                "mae": 3.705078730352193,
+                                "rmse": 16.07232469320638
+                            },
+                            "training_time": 0.0033397674560546875,
+                            "timestamp": "2025-02-04 13:20:55"
+                        }
+                    }
+                },
+                "statistical": {
+                    "last_updated": "2025-02-10 00:22:17",
+                    "models": {
+                        "four_theta": {
+                            "metrics": {
+                                "mae": 3.8357111959769825,
+                                "rmse": 16.0163569810014
+                            },
+                            "training_time": 0.7817482948303223,
+                            "timestamp": "2025-02-09 21:06:34"
+                        },
+                        "theta": {
+                            "metrics": {
+                                "mae": 3.6392020045249276,
+                                "rmse": 16.044521561468677
+                            },
+                            "training_time": 0.7193748950958252,
+                            "timestamp": "2025-02-09 21:06:58"
+                        },
+                        "prophet": {
+                            "metrics": {
+                                "mae": 3.904359364061634,
+                                "rmse": 16.319927188271013
+                            },
+                            "training_time": 22.09816598892212,
+                            "timestamp": "2025-02-09 21:07:44"
+                        },
+                        "exp_smoothing": {
+                            "metrics": {
+                                "mae": Infinity,
+                                "rmse": Infinity
+                            },
+                            "training_time": 32.44880223274231,
+                            "timestamp": "2025-02-09 21:08:42"
+                        },
+                        "auto_arima": {
+                            "metrics": {
+                                "mae": 5.060392006125302,
+                                "rmse": 17.577606584353067
+                            },
+                            "training_time": 2967.701971769333,
+                            "timestamp": "2025-02-09 21:58:50"
+                        },
+                        "tbats": {
+                            "metrics": {
+                                "mae": 3.646967062538893,
+                                "rmse": 15.925306180755168
+                            },
+                            "training_time": 8488.720160245895,
+                            "timestamp": "2025-02-10 00:22:17"
+                        }
+                    }
+                },
+                "regression": {
+                    "last_updated": "2025-02-10 16:34:48",
+                    "models": {
+                        "random_forest": {
+                            "metrics": {
+                                "mae": 4.981627906976744,
+                                "rmse": 4.981627906976744
+                            },
+                            "training_time": 12717.875385046005,
+                            "timestamp": "2025-02-10 14:41:17"
+                        },
+                        "xgboost": {
+                            "metrics": {
+                                "mae": 3.973201347168448,
+                                "rmse": 3.973201347168448
+                            },
+                            "training_time": 4847.559657335281,
+                            "timestamp": "2025-02-10 16:02:30"
+                        },
+                        "lightgbm": {
+                            "metrics": {
+                                "mae": 0.987705088154435,
+                                "rmse": 0.987705088154435
+                            },
+                            "training_time": 1909.739381313324,
+                            "timestamp": "2025-02-10 16:34:48"
+                        }
+                    }
+                },
+                "deep_learning": {
+                    "last_updated": "2025-02-11 21:16:05",
+                    "models": {
+                        "deepar": {
+                            "metrics": {
+                                "mae": 5.158139643749584,
+                                "rmse": 16.087199480842546
+                            },
+                            "training_time": 1385.7675034999847,
+                            "timestamp": "2025-02-11 20:24:27"
+                        },
+                        "transformer": {
+                            "metrics": {
+                                "mae": 5.597854984903911,
+                                "rmse": 16.30152805958555
+                            },
+                            "training_time": 2995.556058883667,
+                            "timestamp": "2025-02-11 21:16:05"
+                        }
+                    }
+                }
+            }
+        },
+        "7": {
+            "last_updated": "2025-02-04 13:24:08",
+            "model_groups": {
+                "baseline": {
+                    "last_updated": "2025-02-04 13:24:08",
+                    "models": {
+                        "naive_mean": {
+                            "metrics": {
+                                "mae": 5.301265657262714,
+                                "rmse": 16.08118007719906
+                            },
+                            "training_time": 0.0012240409851074219,
+                            "timestamp": "2025-02-04 13:23:40"
+                        },
+                        "persistence": {
+                            "metrics": {
+                                "mae": 3.7860538827258323,
+                                "rmse": 16.302052261705587
+                            },
+                            "training_time": 0.0018372535705566406,
+                            "timestamp": "2025-02-04 13:23:47"
+                        },
+                        "naive_seasonal": {
+                            "metrics": {
+                                "mae": 3.7816312239708108,
+                                "rmse": 16.168465401906243
+                            },
+                            "training_time": 0.001730203628540039,
+                            "timestamp": "2025-02-04 13:23:54"
+                        },
+                        "naive_drift": {
+                            "metrics": {
+                                "mae": 3.8640690744095383,
+                                "rmse": 16.37200059125298
+                            },
+                            "training_time": 0.0017290115356445312,
+                            "timestamp": "2025-02-04 13:24:01"
+                        },
+                        "naive_moving_average": {
+                            "metrics": {
+                                "mae": 3.705078730352193,
+                                "rmse": 16.07232469320638
+                            },
+                            "training_time": 0.003831148147583008,
+                            "timestamp": "2025-02-04 13:24:08"
+                        }
+                    }
+                }
+            }
+        },
+        "3": {
+            "last_updated": "2025-02-07 19:27:45",
+            "model_groups": {
+                "statistical": {
+                    "last_updated": "2025-02-07 19:27:45",
+                    "models": {
+                        "prophet": {
+                            "metrics": {
+                                "mae": 12.10533985736579,
+                                "rmse": 22.25441402879758
+                            },
+                            "training_time": 26.018598318099976,
+                            "timestamp": "2025-02-07 19:27:45"
+                        },
+                        "auto_arima": {
+                            "metrics": {
+                                "mae": 29.125810865229532,
+                                "rmse": 40.26507378881536
+                            },
+                            "training_time": 2689.1320247650146,
+                            "timestamp": "2025-02-07 19:24:45"
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

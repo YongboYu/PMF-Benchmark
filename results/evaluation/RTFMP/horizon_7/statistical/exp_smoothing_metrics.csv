@@ -1,0 +1,2 @@
+dataset,horizon,model,mae,rmse
+RTFMP,7,statistical_exp_smoothing,inf,inf
