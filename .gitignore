@@ -163,7 +163,11 @@ cython_debug/
 data/raw/
 data/interim/
 
-logs/wandb/*
-logs/optuna/*
-logs/data_preprocess/*
+logs/wandb/
+logs/optuna/
 logs/*.log
+
+results/evaluation/
+results/models/
+results/predictions/
+results/time_series_analysis/

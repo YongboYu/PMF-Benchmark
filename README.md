@@ -246,7 +246,7 @@ python train.py \
 ./scripts/run_experiments.sh
 ```
 
-### Running Test Scripts (Temporary)
+### Running Test Scripts on VSC (Temporary)
 ```bash
 # Run statistical models on RTFMP dataset
 ./tests/run_statistical_rtfmp.sh

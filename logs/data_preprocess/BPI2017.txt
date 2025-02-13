@@ -1,0 +1,11 @@
+Dataset: BPI2017
+Number of traces (Original Log): 193849
+Start time (org): 2016-01-02 09:17:05.720000+00:00
+End time (org): 2017-02-01 11:23:42.537000+00:00
+Filter percentage: 0.0001
+Number of traces (Filtered Log): 193845 (100.0%)
+Trim percentage: 0.1
+Start time: 2016-02-10 09:17:33.122000+00:00
+End time: 2016-12-24 11:21:39.339000+00:00
+Number of traces (Trimmed Log): 248236 (128.06%)
+
