@@ -265,7 +265,7 @@ These test scripts are configured to run on a SLURM cluster with specific resour
 - GPU: NVIDIA P100
 - CPU cores: 4
 - Memory: 32GB
-- Maximum runtime: varies by model type (2-24 hours)
+- Maximum runtime: varies by model type (2-4 hours)
 
 Each script runs a specific group of models:
 - Statistical: 6 models (Prophet, Exponential Smoothing, Auto ARIMA, Theta, TBATS, Four Theta)
