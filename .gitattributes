@@ -2,14 +2,14 @@
 * text=auto
 
 # Python files
-*.py text diff=python
-*.pyw text diff=python
+*.py text diff=python linguist-language=Python
+*.pyw text diff=python linguist-language=Python
 
 # Shell scripts
 *.sh text eol=lf
 
 # Documentation
-*.md text diff=markdown
+*.md text diff=markdown linguist-language=Shell
 *.txt text
 
 # YAML configs
@@ -17,7 +17,7 @@
 *.yml text
 
 # Jupyter notebooks
-*.ipynb text
+*.ipynb text linguist-language=Jupyter Notebook
 
 # Data files
 *.csv text
