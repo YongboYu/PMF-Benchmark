@@ -363,7 +363,11 @@ _**❗Note: The following sections are for internal sharing purposes and will be
    - Modify evaluation metrics calculation in`utils/evaluation.py`
    - Update prediction visualization in `utils/wandb_logger.py`
 
-3. **Model Implementation Issues**
+3. **Interpolated Time Series Generation 📍** 
+    - Implement time series interpolation for time steps between the beginning and end activities in directly-follows relations
+    - Generate interpolated DF time series to mitigate the impact of intermittency
+   
+4. **Model Implementation Issues**
    - Fix incorrect implementations of:
      - Exponential Smoothing
      - LightGBM
@@ -371,12 +375,12 @@ _**❗Note: The following sections are for internal sharing purposes and will be
      - N-HiTS
      - TFT
 
-4. **Weights & Biases Integration**
+5. **Weights & Biases Integration**
    - Current wandb logging implementation needs fixes for proper metric tracking
    - Handle the error in Optuna callback
    - Enhance visualization logging of model training
 
-5. **Data Preprocessing**
+6. **Data Preprocessing**
    - Improve the logging details for preprocessing stage in `logs/data_preprocess/`
    - Investigate the preprocessing pipeline and parameter settings
    
