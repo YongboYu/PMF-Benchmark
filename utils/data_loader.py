@@ -1,5 +1,5 @@
 from darts.dataprocessing.transformers import Scaler
-from typing import Tuple, Dict, Any, Optional, NamedTuple
+from typing import Tuple, Dict, Any, Optional, NamedTuple, List
 from darts import TimeSeries
 from pathlib import Path
 import pandas as pd
@@ -23,7 +23,7 @@ class DataLoader:
 
     def split_data(self, series: TimeSeries, model_group: str) -> Tuple[TimeSeries, Optional[TimeSeries], TimeSeries]:
         """Split data into train, validation, and test sets"""
-        if model_group in ['baseline', 'statistical']:
+        if model_group in ['baseline', 'statistical', 'foundation']:
             train_size = self.config['data']['simple_split']
             train, test = series.split_after(train_size)
             return train, None, test
@@ -48,8 +48,8 @@ class DataLoader:
             transformer = None
             transform_configs = self.config.get('transformations', {})
             
-            # For baseline and regression models, return untransformed data
-            if model_group in ['baseline', 'regression']:
+            # For baseline, regression, and foundation models, return untransformed data
+            if model_group in ['baseline', 'regression', 'foundation']:
                 return train, val, test, None
             
             elif model_group == 'deep_learning':
@@ -117,7 +117,7 @@ class DataLoader:
 
     def inverse_transform(self, series: TimeSeries, transformer: Any, model_group: str) -> TimeSeries:
         """Inverse transform data"""
-        if model_group in ['baseline', 'regression']:
+        if model_group in ['baseline', 'regression', 'foundation']:
             return series
         
         try:
@@ -126,16 +126,18 @@ class DataLoader:
                 transform_params = self.config['transformations'][model_group]
                 epsilon = transform_params.get('epsilon')
                 offset = transform_params.get('offset')
-                transform_type = transform_params.get('type')
+
+                # transform_type = transform_params.get('type')
                 
                 # Remove epsilon
                 series_no_epsilon = series - epsilon
+                series_no_transform = series_no_epsilon.map(lambda x: np.exp(x))
                 
                 # Apply inverse transform
-                if transform_type == 'log':
-                    series_no_transform = series_no_epsilon.map(lambda x: np.exp(x))
-                else:  # box-cox
-                    series_no_transform = transformer.inverse_transform(series_no_epsilon)
+                # if transform_type == 'log':
+                #     series_no_transform = series_no_epsilon.map(lambda x: np.exp(x))
+                # else:  # box-cox
+                #     series_no_transform = transformer.inverse_transform(series_no_epsilon)
                 
                 # Remove offset
                 return series_no_transform - offset
@@ -146,3 +148,142 @@ class DataLoader:
         except Exception as e:
             self.logger.error(f"Error in inverse transformation: {str(e)}")
             raise
+
+    def create_seq2seq_io_data(
+            self,
+            train: TimeSeries,
+            val: Optional[TimeSeries],
+            test: Optional[TimeSeries],
+            input_length: int,
+            output_length: int,
+            dataset_type: str
+    ) -> Tuple[List[TimeSeries], List[TimeSeries]]:
+        """Create sequence-to-sequence dataset from TimeSeries.
+        
+        Args:
+            train: Training TimeSeries
+            val: Validation TimeSeries (optional)
+            test: Test TimeSeries
+            input_length: Length of input sequences (lags or input_chunk_length)
+            output_length: Length of output sequences (horizon)
+            dataset_type: Type of dataset to create ('val' or 'test')
+            
+        Returns:
+            Tuple containing lists of input and output TimeSeries sequences
+        """
+        input_series_list = []
+        output_series_list = []
+        
+        if dataset_type == 'val':
+            if val is None:
+                raise ValueError("Validation set is required when dataset_type is 'val'")
+            
+            # Concatenate train and val for input sequences
+            combined_series = train.concatenate(val)
+            
+            # Calculate number of sequences (length of validation set minus horizon plus 1)
+            n_sequences = len(val) - output_length + 1
+            
+            # Starting index for the first input sequence
+            first_input_start = len(train) - input_length
+            
+            # Create sequences
+            for i in range(n_sequences):
+                # Extract input sequence
+                input_start = first_input_start + i
+                input_end = input_start + input_length
+                input_series = combined_series[input_start:input_end]
+                
+                # Extract output sequence (only from validation set)
+                output_start = len(train) + i
+                output_end = output_start + output_length
+                output_series = combined_series[output_start:output_end]
+                
+                input_series_list.append(input_series)
+                output_series_list.append(output_series)
+            
+        elif dataset_type == 'test':
+            # Concatenate train, val (if exists), and test
+            if val is not None:
+                combined_series = train.concatenate(val).concatenate(test)
+                history_length = len(train) + len(val)
+            else:
+                combined_series = train.concatenate(test)
+                history_length = len(train)
+            
+            # Calculate number of sequences (length of test set minus horizon plus 1)
+            n_sequences = len(test) - output_length + 1
+            
+            # Starting index for the first input sequence
+            first_input_start = history_length - input_length
+            
+            # Create sequences
+            for i in range(n_sequences):
+                # Extract input sequence
+                input_start = first_input_start + i
+                input_end = input_start + input_length
+                input_series = combined_series[input_start:input_end]
+                
+                # Extract output sequence (only from test set)
+                output_start = history_length + i
+                output_end = output_start + output_length
+                output_series = combined_series[output_start:output_end]
+                
+                input_series_list.append(input_series)
+                output_series_list.append(output_series)
+            
+        else:
+            raise ValueError("dataset_type must be either 'val' or 'test'")
+        
+        return input_series_list, output_series_list
+
+    def create_expanding_io_data(
+            self,
+            train: TimeSeries,
+            val: Optional[TimeSeries],
+            test: TimeSeries,
+            horizon: int,
+    ) -> Tuple[List[TimeSeries], List[TimeSeries]]:
+        """Create expanding window dataset from TimeSeries.
+        
+        Args:
+            train: Training TimeSeries
+            val: Validation TimeSeries (optional)
+            test: Test TimeSeries
+            horizon: Length of output sequences (prediction horizon)
+            
+        Returns:
+            Tuple containing lists of input and output TimeSeries sequences
+        """
+        input_series_list = []
+        output_series_list = []
+        
+        # Combine training and validation data if validation exists
+        if val is not None:
+            history = train.concatenate(val)
+            history_length = len(train) + len(val)
+        else:
+            history = train
+            history_length = len(train)
+        
+        # Calculate number of sequences (length of test set minus horizon plus 1)
+        n_sequences = len(test) - horizon + 1
+        
+        # Create sequences with expanding window
+        for i in range(n_sequences):
+            # Combine historical data with available test data for input
+            available_test = test[:i] if i > 0 else None
+            if available_test is not None:
+                input_series = history.concatenate(available_test)
+            else:
+                input_series = history
+            
+            # Extract output sequence from test set
+            output_start = i
+            output_end = output_start + horizon
+            output_series = test[output_start:output_end]
+            
+            input_series_list.append(input_series)
+            output_series_list.append(output_series)
+        
+        return input_series_list, output_series_list

@@ -1,3 +1,4 @@
+import logging
 from darts.models import (
     NaiveMean,
     NaiveSeasonal,
@@ -9,7 +10,11 @@ import yaml
 from pathlib import Path
 from typing import Dict, Any, Optional, Union, List
 import time
+from utils.wandb_logger import WandbLogger
+from utils.data_loader import DataLoader
 
+# Initialize logger
+logger = logging.getLogger(__name__)
 
 class BaselineModels:
     def __init__(self, config: Union[Dict[str, Any], str], model_name: Optional[str] = None):
@@ -28,6 +33,9 @@ class BaselineModels:
                 self.base_config = yaml.safe_load(f)
             with open(Path(config).parent / 'model_configs' / 'baseline_models.yaml', 'r') as f:
                 self.model_config = yaml.safe_load(f)
+
+        # Initialize DataLoader
+        self.data_loader = DataLoader(self.base_config)
 
         # Initialize models
         self.models = {}
@@ -63,35 +71,61 @@ class BaselineModels:
             raise ValueError(f"Unknown model: {model_name}")
 
     def train_and_predict(self, model_name: str, train, val, test, transformer,
-                          horizon: int, study: Optional[Any] = None) -> Dict[str, Any]:
-        """Train models and generate predictions
+                          horizon: int, dataset: str, study: Optional[Any] = None,
+                          wandb_logger: WandbLogger = None) -> Dict[str, Any]:
+        """Train models and generate predictions using expanding window approach"""
+        # Set wandb_logger as instance attribute
+        self.wandb_logger = wandb_logger
 
-        Args:
-            model_name: Name of the specific model to train
-            train: Training data
-            val: Validation data (not used for baseline models)
-            test: Test data
-            transformer: Data transformer (not used for baseline models)
-            horizon: Forecast horizon
-            study: Optional; Optuna study (not used for baseline models)
+        if not self.models[model_name]:
+            logger.info(f"Model {model_name} not found")
+            return {}
 
-        Returns:
-            Dictionary containing predictions, trained model, and training info
-        """
+        wandb.log({f"baseline_training_model": model_name})
         start_time = time.time()
 
         try:
             model = self.models[model_name]
-            # Train model
-            model.fit(train)
+            # Create expanding window test dataset for final evaluation
+            test_input_seq, test_output_seq = self.data_loader.create_expanding_io_data(
+                train=train,
+                val=val,
+                test=test,
+                horizon=horizon
+            )
 
-            # Generate predictions
-            pred = model.predict(len(test))
+            # Generate predictions using expanding window inputs
+            all_predictions = []
+            for input_seq in test_input_seq:
+                # Fit model on current input sequence
+                model.fit(input_seq)
+                # Generate prediction
+                pred = model.predict(n=horizon)
+                all_predictions.append(pred)
 
-            # Store results
+            # Calculate training time
             training_time = time.time() - start_time
+
+            # Log metrics if wandb_logger is available
+            if wandb_logger:
+                wandb_logger.log_metrics({
+                    'training_time': training_time,
+                    'model_type': str(type(model).__name__),
+                    'horizon': horizon,
+                    'dataset': dataset
+                }, prefix=model_name)
+
+                # Log model artifacts
+                wandb_logger.log_model_artifacts(model_name, {
+                    'model_type': str(type(model).__name__),
+                    'training_time': training_time,
+                    'dataset': dataset,
+                    'horizon': horizon
+                })
+
             return {
-                'predictions': pred,
+                'predictions': all_predictions,
+                'actuals': test_output_seq,
                 'model': model,
                 'training_time': training_time,
                 'model_name': model_name
@@ -99,8 +133,12 @@ class BaselineModels:
 
         except Exception as e:
             error_msg = f"Error training {model_name}: {str(e)}"
-            print(error_msg)
-            wandb.log({f"baseline_{model_name}_error": error_msg})
+            logger.error(error_msg)
+            if wandb_logger:
+                wandb_logger.log_metrics({
+                    "error": str(e),
+                    "failed": True
+                }, prefix=model_name)
             raise
 
     def get_model_names(self) -> List[str]:

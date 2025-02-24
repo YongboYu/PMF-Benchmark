@@ -1,7 +1,7 @@
 # config/model_configs/statistical_models.yaml
 models:
   auto_arima:
-    enabled: false
+    enabled: true
     params:
       seasonal: true
       m: 7  # Weekly seasonality
@@ -46,7 +46,7 @@ models:
       model_mode: "additive"
 
   prophet:
-    enabled: false
+    enabled: true
     params:
       growth: "linear"
       seasonality_mode: "multiplicative"

@@ -22,6 +22,8 @@ import numpy as np
 from darts import TimeSeries
 from optuna.visualization import plot_optimization_history, plot_param_importances, plot_parallel_coordinate, plot_pareto_front
 from utils.wandb_logger import WandbLogger
+from utils.data_loader import DataLoader
+from utils.evaluation import Evaluator
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +47,10 @@ class DeepLearningModels:
             
         self.full_config = self.config
         self.config = self.model_config
+        
+        # Initialize DataLoader and Evaluator
+        self.data_loader = DataLoader(self.full_config)
+        self.evaluator = Evaluator(self.full_config)
         
         # Map model names to their Darts implementations
         self.models = {
@@ -177,22 +183,33 @@ class DeepLearningModels:
         try:
             params = self._get_model_params(trial, model_name, horizon)
             model = model_class(**params)
-            model.fit(train, val_series=val)
-            val_pred = model.predict(n=len(val))
-            val_score = mae(val, val_pred)
+            model.fit(train)
+            
+            # Create seq2seq validation dataset
+            val_input_seq, val_output_seq = self.data_loader.create_seq2seq_io_data(
+                train=train, val=val, test=None, 
+                input_length=params['input_chunk_length'], 
+                output_length=horizon, 
+                dataset_type='val'
+            )
+            
+            # Generate predictions using ground truth inputs
+            val_predictions = []
+            for input_seq in val_input_seq:
+                pred = model.predict(n=horizon, series=input_seq)
+                val_predictions.append(pred)
+            
+            # Calculate average MAE across all sequences
+            val_scores = []
+            for pred, true in zip(val_predictions, val_output_seq):
+                val_scores.append(mae(true, pred))
+            val_score = np.mean(val_scores)
             
             # Log metrics and parameters
             if self.wandb_logger is not None:
                 self.wandb_logger.log_trial_metrics(
-                    metrics={
-                        'mae': val_score,
-                        'trial_number': trial.number,
-                        'state': 'running'
-                    },
-                    params={
-                        **params,
-                        'trial_number': trial.number
-                    },
+                    metrics={'mae': val_score},
+                    params=params,
                     model_name=model_name
                 )
             
@@ -211,14 +228,14 @@ class DeepLearningModels:
     def train_and_predict(self, model_name: str, train, val, test, transformer,
                          horizon: int, dataset: str, study: Optional[optuna.Study] = None,
                          wandb_logger: WandbLogger = None) -> Dict[str, Any]:
-        """Train model and generate predictions"""
+        """Train model and generate predictions using seq2seq approach"""
         if not self.models[model_name]["enabled"]:
             logger.info(f"Model {model_name} is disabled in config")
             return {}
 
         # Set wandb_logger as instance attribute
         self.wandb_logger = wandb_logger
-        
+
         if wandb_logger:
             wandb_logger.log_metrics({"current_model": model_name}, prefix="training")
         
@@ -237,7 +254,7 @@ class DeepLearningModels:
                     model_group='deep_learning',
                     model_name=model_name
                 )
-            
+
             # Get wandb callback if logger is provided
             wandb_callback = None
             if wandb_logger is not None:
@@ -258,9 +275,9 @@ class DeepLearningModels:
                 'catch': (Exception,)
             }
             
-            if wandb_callback is not None:
+            if wandb_logger is not None:
                 optimize_args['callbacks'] = [wandb_callback]
-            
+
             study.optimize(**optimize_args)
 
             if wandb_logger is not None:
@@ -268,7 +285,7 @@ class DeepLearningModels:
 
             # Get the best parameters and train final model
             best_params = study.best_params
-            
+
             # Handle RNN-based models (RNN, LSTM, GRU, DeepAR)
             rnn_based_models = ['rnn', 'lstm', 'gru', 'deepar']
             if model_name in rnn_based_models:
@@ -287,16 +304,31 @@ class DeepLearningModels:
                 lr = best_params.pop('lr')
                 best_params['optimizer_kwargs'] = {'lr': lr}
 
-            # Create and train final model
-            final_model = self.models[model_name]["model"](**best_params)
+
+
+            # Train final model on combined data
             combined_train = train.concatenate(val) if val is not None else train
+            final_model = self.models[model_name]["model"](**best_params)
             final_model.fit(combined_train)
-            predictions = final_model.predict(n=len(test))
-            
+
+            # Create seq2seq test dataset for final evaluation
+            test_input_seq, test_output_seq = self.data_loader.create_seq2seq_io_data(
+                train=train, val=val, test=test,
+                input_length=best_params['input_chunk_length'],
+                output_length=horizon,
+                dataset_type='test'
+            )
+
+            # Generate final predictions
+            all_predictions = []
+            for input_seq in test_input_seq:
+                pred = final_model.predict(n=horizon, series=input_seq)
+                all_predictions.append(pred)
+
             # Log the study results
             if wandb_logger:
                 wandb_logger.log_study_results(study, model_name, dataset, horizon)
-            
+
             # Log detailed metrics
             if wandb_logger:
                 training_time = study.trials[-1].duration.total_seconds() if study.trials else 0
@@ -309,7 +341,7 @@ class DeepLearningModels:
                     'n_epochs': best_params.get('n_epochs'),
                     'learning_rate': best_params.get('optimizer_kwargs', {}).get('lr')
                 }, prefix=model_name)
-                
+
                 # Log model artifacts
                 wandb_logger.log_model_artifacts(model_name, {
                     'best_params': best_params,
@@ -319,12 +351,10 @@ class DeepLearningModels:
                     'device': str(self.device),
                     'training_time': training_time
                 })
-                
-                # Log predictions visualization
-                wandb_logger.log_predictions(predictions, test, model_name)
 
             return {
-                'predictions': predictions,
+                'predictions': all_predictions,
+                'actuals': test_output_seq,
                 'model': final_model,
                 'best_params': best_params,
                 'study': study

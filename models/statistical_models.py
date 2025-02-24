@@ -10,23 +10,39 @@ from darts.utils.utils import ModelMode, SeasonalityMode
 import wandb
 import yaml
 from pathlib import Path
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional, Union, List
 import logging
-from utils.evaluation import Evaluator
 import time
-from utils.logging_manager import get_logging_manager
+from utils.data_loader import DataLoader
+from utils.evaluation import Evaluator
+from utils.wandb_logger import WandbLogger
 
+# Initialize logger
+logger = logging.getLogger(__name__)
 
 class StatisticalModels:
-    def __init__(self, config: Dict[str, Any], model_name: Optional[str] = None):
-        self.base_config = config
-        self.model_config = config['model_configs']['statistical_models']
-        self.evaluator = Evaluator(config)
+    def __init__(self, config: Union[Dict[str, Any], str], model_name: Optional[str] = None):
+        """Initialize statistical models.
+        
+        Args:
+            config: Either config dictionary or path to base config file
+            model_name: Optional name of a specific model to initialize
+        """
+        # Load configurations
+        if isinstance(config, dict):
+            self.base_config = config
+            self.model_config = config['model_configs']['statistical_models']
+        else:
+            with open(config, 'r') as f:
+                self.base_config = yaml.safe_load(f)
+            with open(Path(config).parent / 'model_configs' / 'statistical_models.yaml', 'r') as f:
+                self.model_config = yaml.safe_load(f)
 
-        # Setup logging
-        self.logger = get_logging_manager(config).get_logger(__name__)
+        # Initialize components
+        self.data_loader = DataLoader(self.base_config)
+        self.evaluator = Evaluator(self.base_config)
 
-        # Initialize models based on config
+        # Initialize models
         self.models = {}
         if model_name:
             # Initialize single model if specified
@@ -47,7 +63,6 @@ class StatisticalModels:
         try:
             if model_name == "auto_arima":
                 return AutoARIMA(**params)
-
             elif model_name == "exp_smoothing":
                 # Convert string parameters to ModelMode enums
                 if 'trend' in params:
@@ -59,20 +74,15 @@ class StatisticalModels:
                                         if params['seasonal'] == 'additive'
                                         else SeasonalityMode.MULTIPLICATIVE)
                 return ExponentialSmoothing(**params)
-
             elif model_name == "tbats":
                 return TBATS(**params)
-
             elif model_name == "theta":
-                # Convert season_mode to SeasonalityMode enum
                 if 'season_mode' in params:
                     params['season_mode'] = (SeasonalityMode.ADDITIVE
                                            if params['season_mode'] == 'additive'
                                            else SeasonalityMode.MULTIPLICATIVE)
                 return Theta(**params)
-
             elif model_name == "four_theta":
-                # Convert season_mode and model_mode to SeasonalityMode enum
                 if 'season_mode' in params:
                     params['season_mode'] = (SeasonalityMode.ADDITIVE
                                            if params['season_mode'] == 'additive'
@@ -82,86 +92,109 @@ class StatisticalModels:
                                           if params['model_mode'] == 'additive'
                                           else ModelMode.MULTIPLICATIVE)
                 return FourTheta(**params)
-
             elif model_name == "prophet":
                 return Prophet(**params)
-
             else:
                 raise ValueError(f"Unknown model: {model_name}")
-
         except Exception as e:
-            self.logger.error(f"Error initializing {model_name}: {str(e)}")
+            logger.error(f"Error initializing {model_name}: {str(e)}")
             raise
 
-    def get_model_names(self) -> list:
-        """Return list of enabled model names"""
-        return list(self.models.keys())
-
     def train_and_predict(self, model_name: str, train, val, test, transformer, 
-                         horizon: int, study: Optional[Any] = None) -> Dict[str, Any]:
-        """Train model and generate predictions for multivariate time series"""
-        self.logger.info(f"Training {model_name} model...")
+                         horizon: int, dataset: str, study: Optional[Any] = None,
+                         wandb_logger: WandbLogger = None) -> Dict[str, Any]:
+        """Train model and generate predictions using expanding window approach"""
+        logger.info(f"Training {model_name} model...")
+        self.wandb_logger = wandb_logger
+
+        if not self.models[model_name]:
+            logger.info(f"Model {model_name} not found")
+            return {}
+
         wandb.log({f"statistical_training_model": model_name})
-        
         start_time = time.time()
 
         try:
-            model = self.models[model_name]
-            predictions = []
-            trained_models = []
+            # Create expanding window test dataset
+            test_input_seq, test_output_seq = self.data_loader.create_expanding_io_data(
+                train=train,
+                val=val,
+                test=test,
+                horizon=horizon
+            )
             
             # Train separate model for each component
+            all_component_predictions = []
+            trained_models = []
+            
             for component in train.components:
-                # Extract univariate series for current component
-                train_component = train[component]
-                test_component = test[component] if test is not None else None
-                val_component = val[component] if val is not None else None
+                component_predictions = []
                 
                 # Create new model instance for each component
                 component_model = self._initialize_model(model_name, self.model_config['models'][model_name])
                 
-                # Train model on component
-                component_model.fit(train_component)
+                # For each input sequence in the expanding window
+                for input_seq in test_input_seq:
+                    # Extract component data and fit model
+                    input_seq_component = input_seq[component]
+                    component_model.fit(input_seq_component)
+                    
+                    # Generate predictions
+                    pred = component_model.predict(n=horizon)
+                    component_predictions.append(pred)
                 
-                # Generate predictions
-                pred = component_model.predict(len(test_component))
-                predictions.append(pred)
+                all_component_predictions.append(component_predictions)
                 trained_models.append(component_model)
 
-            # Combine component predictions into multivariate series
-            combined_predictions = predictions[0]
-            for pred in predictions[1:]:
-                combined_predictions = combined_predictions.stack(pred)
+            # Combine predictions from all components
+            all_predictions = []
+            for seq_idx in range(len(test_input_seq)):
+                seq_predictions = [comp_preds[seq_idx] for comp_preds in all_component_predictions]
+                combined_pred = seq_predictions[0]
+                for pred in seq_predictions[1:]:
+                    combined_pred = combined_pred.stack(pred)
+                all_predictions.append(combined_pred)
 
+            # Calculate training time
             training_time = time.time() - start_time
 
-            # Get model-specific information
-            model_info = {
-                "fitted": True,
-                "model_type": model_name,
-                "n_components": len(train.components),
-                "training_time": training_time
-            }
+            # Log metrics if wandb_logger is available
+            if wandb_logger:
+                wandb_logger.log_metrics({
+                    'training_time': training_time,
+                    'n_components': len(train.components),
+                    'model_type': model_name,
+                    'horizon': horizon,
+                    'dataset': dataset
+                }, prefix=model_name)
 
-            # Add specific model parameters if available
-            if hasattr(model, "get_params"):
-                model_info["parameters"] = model.get_params()
-
-            # Log to wandb
-            wandb.log({
-                f"statistical_{model_name}_trained": True,
-                f"statistical_{model_name}_info": model_info
-            })
+                # Log model artifacts
+                wandb_logger.log_model_artifacts(model_name, {
+                    'model_type': model_name,
+                    'n_components': len(train.components),
+                    'training_time': training_time,
+                    'dataset': dataset,
+                    'horizon': horizon
+                })
 
             return {
-                'predictions': combined_predictions,
-                'models': trained_models,
-                'model_info': model_info,
-                'training_time': training_time
+                'predictions': all_predictions,
+                'actuals': test_output_seq,
+                'model': trained_models,
+                'training_time': training_time,
+                'model_name': model_name
             }
 
         except Exception as e:
             error_msg = f"Error training {model_name}: {str(e)}"
-            self.logger.error(error_msg)
-            wandb.log({f"statistical_{model_name}_error": error_msg})
+            logger.error(error_msg)
+            if wandb_logger:
+                wandb_logger.log_metrics({
+                    "error": str(e),
+                    "failed": True
+                }, prefix=model_name)
             raise
+
+    def get_model_names(self) -> List[str]:
+        """Get list of enabled model names"""
+        return list(self.models.keys())

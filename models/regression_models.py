@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Dict, Any, Tuple, Optional, List, Union
 import yaml
 import time
+import numpy as np
 
 import optuna
 import wandb
@@ -15,6 +16,8 @@ from darts.models import (
 from utils.optuna_manager import OptunaManager
 from darts.metrics import mae
 from utils.wandb_logger import WandbLogger
+from utils.data_loader import DataLoader
+from utils.evaluation import Evaluator
 
 # from sklearn.linear_model import LinearRegression
 # from sklearn.ensemble import RandomForestRegressor
@@ -41,6 +44,12 @@ class RegressionModels:
             
         # Initialize OptunaManager
         self.optuna_manager = OptunaManager(self.full_config)
+        
+        # Initialize DataLoader
+        self.data_loader = DataLoader(self.full_config)
+        
+        # Initialize evaluator
+        self.evaluator = Evaluator(self.full_config)
         
         # Map model names to their Darts implementations
         self.models = {
@@ -107,9 +116,26 @@ class RegressionModels:
             params = self._get_model_params(trial, model_name, horizon)
             model = model_class(**params)
             model.fit(train)
-            val_pred = model.predict(n=len(val))
-
-            val_score = mae(val, val_pred)
+            
+            # Create seq2seq validation dataset
+            val_input_seq, val_output_seq = self.data_loader.create_seq2seq_io_data(
+                train=train, val=val, test=None, 
+                input_length=params['lags'], 
+                output_length=horizon, 
+                dataset_type='val'
+            )
+            
+            # Compute validation score using ground truth inputs
+            val_predictions = []
+            for input_seq in val_input_seq:
+                pred = model.predict(n=horizon, series=input_seq)
+                val_predictions.append(pred)
+            
+            # Calculate average MAE across all sequences
+            val_scores = []
+            for pred, true in zip(val_predictions, val_output_seq):
+                val_scores.append(mae(true, pred))
+            val_score = np.mean(val_scores)
             
             # Log metrics and parameters
             if self.wandb_logger is not None:
@@ -120,6 +146,7 @@ class RegressionModels:
                 )
             
             return val_score
+            
         except Exception as e:
             logger.error(f"Trial {trial.number} failed: {str(e)}")
             raise optuna.exceptions.TrialPruned()
@@ -127,7 +154,7 @@ class RegressionModels:
     def train_and_predict(self, model_name: str, train, val, test, transformer,
                          horizon: int, dataset: str, study: Optional[optuna.Study] = None,
                          wandb_logger: WandbLogger = None) -> Dict[str, Any]:
-        """Train model and generate predictions"""
+        """Train model and generate predictions using seq2seq approach"""
         # Set wandb_logger as instance attribute
         self.wandb_logger = wandb_logger
 
@@ -152,7 +179,7 @@ class RegressionModels:
             wandb_callback = None
             if wandb_logger is not None:
                 wandb_callback = wandb_logger.log_optuna_study(study, model_name, dataset, horizon)
-            
+
             # Run optimization with callback if available
             optimize_args = {
                 'func': lambda trial: self.objective(
@@ -167,7 +194,7 @@ class RegressionModels:
                 'catch': (Exception,)
             }
             
-            if wandb_callback is not None:
+            if wandb_logger is not None:
                 optimize_args['callbacks'] = [wandb_callback]
             
             study.optimize(**optimize_args)
@@ -184,16 +211,26 @@ class RegressionModels:
                 if 'lags' not in best_params:
                     best_params['lags'] = study.best_trial.params.get('lags')
 
-                # Combine train and validation sets for final training
-                combined_train = train
-                if val is not None:
-                    combined_train = train.concatenate(val)
-
                 # Train final model on combined data
+                combined_train = train.concatenate(val) if val is not None else train
                 model = self.models[model_name]["model"](**best_params)
                 model.fit(combined_train)
-                pred = model.predict(n=len(test))
 
+                # Create seq2seq test dataset for final evaluation
+                test_input_seq, test_output_seq = self.data_loader.create_seq2seq_io_data(
+                    train=train, val=val, test=test, 
+                    input_length=best_params['lags'], 
+                    output_length=horizon, 
+                    dataset_type='test'
+                )
+                
+                # Generate final predictions
+                all_predictions = []
+                for input_seq in test_input_seq:
+                    pred = model.predict(n=horizon, series=input_seq)
+                    all_predictions.append(pred)
+
+                # Log final results
                 wandb.log({
                     f"regression_{model_name}_best_params": best_params,
                     f"regression_{model_name}_trained": True,
@@ -202,7 +239,8 @@ class RegressionModels:
                 })
 
                 return {
-                    'predictions': pred,
+                    'predictions': all_predictions,
+                    'actuals': test_output_seq,
                     'model': model,
                     'best_params': best_params,
                     'study': study
@@ -210,10 +248,12 @@ class RegressionModels:
             
             # Return empty results if no successful trials
             return {
-                'predictions': None,
+                'seq_predictions': None,
+                'seq_actuals': None,
+                'ground_truth': None,
                 'model': None,
                 'best_params': {},
-                'study': study
+                'study': study,
             }
 
         except Exception as e:

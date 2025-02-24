@@ -8,7 +8,7 @@ common:
 
 models:
   linear:
-    enabled: false
+    enabled: true
     params: null
 
   random_forest:
