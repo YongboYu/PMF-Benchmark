@@ -352,10 +352,10 @@ _**❗Note: The following sections are for internal sharing purposes and will be
 
 ### Known Issues and Planned Improvements
 
-1. **Inference Framework 📍**
+1. **Inference Framework ✅**
    - Change sequence forecasting **inputs** from previous predictions to **ground truth values** on the validation and test set
 
-2. **Multi-step Forecasting Evaluation 📍**
+2. **Multi-step Forecasting Evaluation ✅**
    - Implement dual evaluation strategy for horizons > 1:
      - Evaluate all points in prediction sequences
      - Evaluate only terminal points in sequences
@@ -369,13 +369,14 @@ _**❗Note: The following sections are for internal sharing purposes and will be
    
 4. **Model Implementation Issues**
    - Fix incorrect implementations of:
-     - Exponential Smoothing
-     - LightGBM
-     - N-BEATS
-     - N-HiTS
-     - TFT
+     - Exponential Smoothing ⏳
+     - AutoARIMA ➡️ ARIMA ⏳
+     - LightGBM ✅
+     - N-BEATS ✅
+     - N-HiTS ✅
+     - TFT ➡️ _may be dropped_
 
-5. **Weights & Biases Integration**
+5. **Weights & Biases Integration ⏳**
    - Current wandb logging implementation needs fixes for proper metric tracking
    - Handle the error in Optuna callback
    - Enhance visualization logging of model training
@@ -387,13 +388,14 @@ _**❗Note: The following sections are for internal sharing purposes and will be
 ### Upcoming Features
 
 1. **Model Enhancements 📍**
-   - Add TimeGPT and other foundation models to benchmark suite
-   - Implement univariate learning/prediction options for:
-     - Regression models
-     - Deep learning models
+   - Add TimeGPT and other foundation models to benchmark suite ✅
+   - Implement univariate learning/prediction options for : 
+     - Regression models ⏳
+     - Deep learning models ⏳
 
 2. **Dataset Implementation**
-   - Next priority: Implement BPI2017 dataset with 7-day horizon forecasting 📍
+   - ~~Next priority~~: Implement BPI2017 dataset with 7-day horizon forecasting ✅
+   - Next priority: Implement BPI2019_1, sepsis, Hospital Billing (and RTFMP) datasets 📍
    - Investigate time series intermittency
    - Include example notebooks for data analysis
 
