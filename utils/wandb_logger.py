@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from pathlib import Path
-from typing import Dict, Any, Optional, Union
+from typing import Dict, Any, Optional, Union, List
 from darts import TimeSeries
 import optuna
 from optuna.visualization import (
@@ -12,6 +12,8 @@ from optuna.visualization import (
     plot_parallel_coordinate
 )
 import numpy as np
+import pandas as pd
+from utils.evaluation import Evaluator
 
 
 class WandbLogger:
@@ -23,6 +25,7 @@ class WandbLogger:
         self.param_history = {}
         self.trial_history = {}
         self._run = None
+        self.config = config
 
     @property
     def run(self):
@@ -94,77 +97,130 @@ class WandbLogger:
             self._run.finish()
             self._run = None
 
-    def log_predictions(self, predictions: TimeSeries, actual: TimeSeries, model_name: str):
-        """Log prediction plots for all time series components in a single media object using matplotlib
-
+    def log_predictions(self, predictions: List[TimeSeries], actual: List[TimeSeries], model_name: str):
+        """Log prediction plots for sequence predictions, showing the last point of each sequence
+        
         Args:
-            predictions: Model predictions (TimeSeries or list of TimeSeries)
-            actual: Actual values (TimeSeries or list of TimeSeries)
+            predictions: List of TimeSeries predictions
+            actual: List of ground truth TimeSeries
             model_name: Name of the model
         """
-        if not isinstance(predictions, list):
-            predictions = [predictions]
-            actual = [actual]
-
-        # Create subplot grid based on number of components
+        # Create evaluator instance with the same config
+        evaluator = Evaluator(self.config)
+        
+        # Transform predictions and actuals to DataFrames containing last points
+        last_predictions_df = evaluator.transform_predictions_to_dataframe(predictions, last_only=True)
+        last_actuals_df = evaluator.transform_predictions_to_dataframe(actual, last_only=True)
+        
+        # Convert DataFrames to numpy arrays for plotting
+        last_point_preds = last_predictions_df.values
+        last_point_actuals = last_actuals_df.values
+        
+        # Get time points from DataFrame index
+        time_points = pd.to_datetime(last_predictions_df.index)
+        
+        # Create subplot for each time series component
         n_components = actual[0].width
-        n_cols = min(3, n_components)  # Reduced max columns to 3 for wider plots
-        n_rows = (n_components + n_cols - 1) // n_cols
+        fig, axes = plt.subplots(n_components, 1, figsize=(12, 4*n_components))
+        if n_components == 1:
+            axes = [axes]
         
-        # Create figure and subplots with increased width
-        fig, axes = plt.subplots(n_rows, n_cols, figsize=(24, 6*n_rows))  # Increased width from 20 to 24
-        if n_rows == 1 and n_cols == 1:
-            axes = np.array([[axes]])
-        elif n_rows == 1 or n_cols == 1:
-            axes = axes.reshape(n_rows, n_cols)
-        
-        # Plot each component
         for i in range(n_components):
-            row = i // n_cols
-            col = i % n_cols
-            ax = axes[row, col]
+            ax = axes[i]
             time_series_name = actual[0].columns[i]
             
-            for act, pred in zip(actual, predictions):
-                # Plot actual values
-                ax.plot(act.time_index, 
-                       act.univariate_component(time_series_name).values(),
-                       'b-', label='Actual' if i == 0 else "_nolegend_",
-                       linewidth=2)  # Increased line width
-                
-                # Plot predictions
-                ax.plot(pred.time_index,
-                       pred.univariate_component(time_series_name).values(),
-                       'r-', label='Forecast' if i == 0 else "_nolegend_",
-                       linewidth=2)  # Increased line width
+            # Plot actual values
+            ax.plot(time_points, last_point_actuals[:, i], 
+                    'b-o', label='Actual', linewidth=2, markersize=6)
             
-            ax.set_title(time_series_name, pad=10)  # Added padding to title
-            if row == n_rows - 1:  # Bottom row
-                ax.set_xlabel('Time', fontsize=10)
-            if col == 0:  # Leftmost column
-                ax.set_ylabel('Value', fontsize=10)
-            ax.grid(True, alpha=0.3)  # Lighter grid
-            ax.tick_params(axis='both', which='major', labelsize=9)  # Adjusted tick label size
+            # Plot predictions
+            ax.plot(time_points, last_point_preds[:, i], 
+                    'r-o', label='Forecast', linewidth=2, markersize=6)
+            
+            # Add error bands
+            error = np.abs(last_point_preds[:, i] - last_point_actuals[:, i])
+            ax.fill_between(time_points,
+                           last_point_actuals[:, i] - error,
+                           last_point_actuals[:, i] + error,
+                           alpha=0.2, color='gray', label='Error Band')
+            
+            # Customize plot
+            ax.set_title(f"{time_series_name} - Last Point Comparison")
+            ax.set_xlabel('Time')
+            ax.set_ylabel('Value')
+            ax.grid(True, alpha=0.3)
+            ax.legend()
+        
+        # Adjust layout
+        plt.tight_layout()
+        
+        # Log to wandb
+        wandb.log({
+            f"{model_name}_last_point_predictions": wandb.Image(fig),
+            f"{model_name}_prediction_stats": {
+                "mean_error": np.mean(np.abs(last_point_preds - last_point_actuals)),
+                "std_error": np.std(np.abs(last_point_preds - last_point_actuals)),
+                "max_error": np.max(np.abs(last_point_preds - last_point_actuals)),
+                "min_error": np.min(np.abs(last_point_preds - last_point_actuals))
+            }
+        })
+        
+        plt.close(fig)
 
-        # Hide empty subplots
-        for i in range(n_components, n_rows * n_cols):
-            row = i // n_cols
-            col = i % n_cols
-            axes[row, col].set_visible(False)
-
-        # Add legend to the figure
+    def _log_sequence_plots(self, predictions: List[TimeSeries], actual: List[TimeSeries], model_name: str):
+        """Log detailed sequence plots for the first few sequences"""
+        n_sequences = len(predictions)
+        n_components = actual[0].width
+        
+        # Create subplot grid
+        n_cols = n_components
+        n_rows = n_sequences
+        
+        fig, axes = plt.subplots(n_rows, n_cols, figsize=(24, 6*n_rows))
+        if n_rows == 1:
+            axes = axes.reshape(1, -1)
+        
+        # Plot each sequence
+        for seq_idx in range(n_sequences):
+            for comp_idx in range(n_components):
+                ax = axes[seq_idx, comp_idx]
+                time_series_name = actual[0].columns[comp_idx]
+                
+                # Plot actual sequence
+                ax.plot(actual[seq_idx].time_index,
+                       actual[seq_idx].univariate_component(time_series_name).values(),
+                       'b-', label='Actual' if seq_idx == 0 else "_nolegend_",
+                       linewidth=2)
+                
+                # Plot predicted sequence
+                ax.plot(predictions[seq_idx].time_index,
+                       predictions[seq_idx].univariate_component(time_series_name).values(),
+                       'r-', label='Forecast' if seq_idx == 0 else "_nolegend_",
+                       linewidth=2)
+                
+                # Customize plot
+                if seq_idx == 0:
+                    ax.set_title(f"{time_series_name}", pad=10)
+                if seq_idx == n_rows - 1:
+                    ax.set_xlabel('Time', fontsize=10)
+                if comp_idx == 0:
+                    ax.set_ylabel(f'Sequence {seq_idx+1}', fontsize=10)
+                ax.grid(True, alpha=0.3)
+                ax.tick_params(axis='both', which='major', labelsize=9)
+        
+        # Add legend
         handles, labels = axes[0, 0].get_legend_handles_labels()
         fig.legend(handles, labels, loc='upper center', bbox_to_anchor=(0.5, 1.05),
                   ncol=2, fancybox=True, shadow=True, fontsize=10)
-
-        # Adjust layout and title
-        fig.suptitle(f"{model_name} Predictions", y=1.02, fontsize=12)
-        plt.tight_layout()
-
-        # Log to wandb
-        wandb.log({f"{model_name}_predictions": wandb.Image(fig)})
         
-        # Close the figure to free memory
+        # Adjust layout
+        fig.suptitle(f"{model_name} Sequence Predictions (First {n_sequences} Sequences)", y=1.02, fontsize=12)
+        plt.tight_layout()
+        
+        # Log to wandb
+        wandb.log({f"{model_name}_sequence_predictions": wandb.Image(fig)})
+        
+        # Close the figure
         plt.close(fig)
 
     def log_trial_metrics(self, metrics: Dict[str, float], params: Dict[str, Any], model_name: str):
