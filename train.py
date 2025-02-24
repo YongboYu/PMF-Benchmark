@@ -27,6 +27,7 @@ from models.deep_learning_models import DeepLearningModels
 from utils.wandb_logger import WandbLogger
 from utils.optuna_manager import OptunaManager
 from utils.logging_manager import get_logging_manager
+from models.foundation_models import FoundationModels
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +61,8 @@ class ModelTrainer:
             'baseline': BaselineModels,
             'statistical': StatisticalModels,
             'regression': RegressionModels,
-            'deep_learning': DeepLearningModels
+            'deep_learning': DeepLearningModels,
+            'foundation': FoundationModels
         }
 
     def train_single_model(self, dataset: str, model_group: str, model_name: str, horizon: int) -> Dict[str, Any]:
@@ -92,8 +94,9 @@ class ModelTrainer:
                     if hasattr(model, 'wandb_logger'):
                         model.wandb_logger = wandb_logger
 
-                    # Train and evaluate model
                     start_time = time.time()
+
+                    # Train and get predictions
                     model_results = model.train_and_predict(
                         model_name=model_name,
                         train=train_t,
@@ -107,36 +110,50 @@ class ModelTrainer:
 
                     training_time = time.time() - start_time
 
-                    # Process results
-                    test_original = self.data_loader.inverse_transform(test_t, transformer, model_group)
-                    predictions = self.data_loader.inverse_transform(model_results['predictions'], transformer, model_group)
+                    if model_results.get('predictions') and model_results.get('actuals'):
+                        # Inverse transform predictions if needed
+                        predictions = [
+                            self.data_loader.inverse_transform(pred, transformer, model_group)
+                            for pred in model_results['predictions']
+                        ]
+                        actuals = [
+                            self.data_loader.inverse_transform(act, transformer, model_group)
+                            for act in model_results['actuals']
+                        ]
 
-                    metrics = self.evaluator.evaluate_predictions(
-                        predictions=predictions,
-                        actuals=test_original
-                    )
+                        metrics = self.evaluator.evaluate_sequence_predictions(
+                            predictions=predictions,
+                            actuals=actuals,
+                        )
 
-                    result_dict = {
-                        'model_name': model_group,
-                        'specific_model': model_name,
-                        'metrics': metrics,
-                        'training_time': training_time
-                    }
+                        # Save results and metrics
+                        result_dict = {
+                            'model_name': model_group,
+                            'specific_model': model_name,
+                            'metrics': {
+                                'all_points': metrics['all_points'],
+                                'last_point': metrics['last_point']
+                            },
+                            'training_time': training_time,
+                            'model': model_results['model'],
+                            'best_params': model_results.get('best_params', {})
+                        }
 
-                    self.evaluator.save_results(
-                        model_results=result_dict,
-                        dataset=dataset,
-                        horizon=horizon,
-                        model=model_results.get('models') if model_group == 'statistical' 
-                              else model_results.get('model'),
-                        predictions=predictions
-                    )
+                        # Save individual model results
+                        self.evaluator.save_model_result(
+                            dataset=dataset,
+                            model_group=model_group,
+                            model_name=model_name,
+                            horizon=horizon,
+                            metrics=metrics,
+                            training_time=training_time
+                        )
 
-                    metrics_with_time = {**metrics, 'training_time': training_time}
-                    wandb_logger.log_metrics(metrics_with_time)
-                    wandb_logger.log_predictions(predictions, test_original, model_name)
+                        metrics_with_time = {**metrics, 'training_time': training_time}
+                        wandb_logger.log_metrics(metrics_with_time)
+                        wandb_logger.log_predictions(predictions, actuals, model_name)
 
-                    results[model_name] = result_dict
+                        results[model_name] = result_dict
 
                 except Exception as e:
                     self.logger.error(f"Error training {model_name}: {str(e)}")
@@ -173,7 +190,7 @@ def main():
     parser = argparse.ArgumentParser(description='Train time series forecasting models')
     parser.add_argument('--dataset', type=str, required=True, help='Dataset name')
     parser.add_argument('--model_group', type=str, required=True, 
-                       choices=['baseline', 'statistical', 'regression', 'deep_learning', 'all'],
+                       choices=['baseline', 'statistical', 'regression', 'deep_learning', 'foundation', 'all'],
                        help='Model group to train')
     parser.add_argument('--model', type=str, required=False,
                        help='Specific model to train within the model group')
