@@ -1,10 +1,17 @@
 # config/model_configs/regression_models.yaml
 common:
   lags:
-    min_lag: 7
-    max_lag: 56
-    step_size: 7
+    horizon_7:
+      min_lag: 7
+      max_lag: 56
+      step_size: 7
+    horizon_28:
+      min_lag: 28
+      max_lag: 84
+      step_size: 7
+#  n_trials: 2
   n_trials: 50
+
 
 models:
   linear:
