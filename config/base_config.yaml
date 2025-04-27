@@ -1,12 +1,13 @@
 project:
-  name: "time_series_benchmarks"
+  name: "PMF_Benchmarks"
+  entity: "yongboyu"
   seed: 42
-  wandb_project: "ts_benchmarks"
-  wandb:
-    enabled: true
-    log_predictions: true
-    log_hyperparams: true
-    tags: []
+#  wandb_project: "ts_benchmarks"
+#  wandb:
+#    enabled: true
+#    log_predictions: true
+#    log_hyperparams: true
+#    tags: []
 
 paths:
   log_dir: "logs"
