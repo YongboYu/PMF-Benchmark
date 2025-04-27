@@ -89,26 +89,124 @@ class EventLogProcessor:
         """Save log processing information"""
         log_dir = Path('logs/data_preprocess')
         log_dir.mkdir(parents=True, exist_ok=True)
-
+        
+        # Get statistics for each log version
+        org_stats = self._get_log_statistics(org_log)
+        filter_stats = self._get_log_statistics(filter_log)
+        trim_stats = self._get_log_statistics(trimmed_log)
+        
         with open(log_dir / f'{dataset}.txt', 'w') as f:
-            f.write(f'Dataset: {dataset}\n')
-            f.write(f'Number of traces (Original Log): {len(org_log)}\n')
-            f.write(f'Start time (org): {org_start_time}\n')
-            f.write(f'End time (org): {org_end_time}\n')
+            f.write(f'Dataset: {dataset}\n\n')
+            
+            # Original log statistics
+            f.write('Original Log Statistics:\n')
+            f.write(f'Time length (days): {org_stats["time_length_days"]}\n')
+            f.write(f'Number of traces: {org_stats["num_traces"]}\n')
+            f.write(f'Number of events: {org_stats["num_events"]}\n')
+            f.write(f'Number of activities: {org_stats["num_activities"]}\n')
+            f.write(f'Number of variants: {org_stats["num_variants"]}\n')
+            f.write(f'Number of unique DFs: {org_stats["unique_dfs"]}\n')
+            f.write(f'Total DF occurrences: {org_stats["total_dfs"]}\n')
+            f.write(f'Start time: {org_stats["start_time"]}\n')
+            f.write(f'End time: {org_stats["end_time"]}\n\n')
+            
+            # Filtered log statistics
+            f.write('Filtered Log Statistics:\n')
             f.write(f'Filter percentage: {self.config["event_log"]["filter_percentage"]}\n')
-            f.write(
-                f'Number of traces (Filtered Log): {len(filter_log)} '
-                f'({round(len(filter_log) / len(org_log) * 100, 2)}%)\n'
-            )
+            f.write(f'Time length (days): {filter_stats["time_length_days"]} '
+                    f'({round(filter_stats["time_length_days"] / org_stats["time_length_days"] * 100, 2)}%)\n')
+            f.write(f'Number of traces: {filter_stats["num_traces"]} '
+                    f'({round(filter_stats["num_traces"] / org_stats["num_traces"] * 100, 2)}%)\n')
+            f.write(f'Number of events: {filter_stats["num_events"]} '
+                    f'({round(filter_stats["num_events"] / org_stats["num_events"] * 100, 2)}%)\n')
+            f.write(f'Number of activities: {filter_stats["num_activities"]} '
+                    f'({round(filter_stats["num_activities"] / org_stats["num_activities"] * 100, 2)}%)\n')
+            f.write(f'Number of variants: {filter_stats["num_variants"]} '
+                    f'({round(filter_stats["num_variants"] / org_stats["num_variants"] * 100, 2)}%)\n')
+            f.write(f'Number of unique DFs: {filter_stats["unique_dfs"]} '
+                    f'({round(filter_stats["unique_dfs"] / org_stats["unique_dfs"] * 100, 2)}%)\n')
+            f.write(f'Total DF occurrences: {filter_stats["total_dfs"]} '
+                    f'({round(filter_stats["total_dfs"] / org_stats["total_dfs"] * 100, 2)}%)\n\n')
+            
+            # Trimmed log statistics
+            f.write('Trimmed Log Statistics:\n')
             f.write(f'Trim percentage: {self.config["event_log"]["trim_percentage"]}\n')
-            f.write(f'Start time: {trim_start}\n')
-            f.write(f'End time: {trim_end}\n')
-            f.write(
-                f'Number of traces (Trimmed Log): {len(trimmed_log)} '
-                f'({round(len(trimmed_log) / len(org_log) * 100, 2)}%)\n\n'
-            )
-
+            f.write(f'Time length (days): {trim_stats["time_length_days"]} '
+                    f'({round(trim_stats["time_length_days"] / org_stats["time_length_days"] * 100, 2)}%)\n')
+            f.write(f'Number of traces: {trim_stats["num_traces"]} '
+                    f'({round(trim_stats["num_traces"] / org_stats["num_traces"] * 100, 2)}%)\n')
+            f.write(f'Number of events: {trim_stats["num_events"]} '
+                    f'({round(trim_stats["num_events"] / org_stats["num_events"] * 100, 2)}%)\n')
+            f.write(f'Number of activities: {trim_stats["num_activities"]} '
+                    f'({round(trim_stats["num_activities"] / org_stats["num_activities"] * 100, 2)}%)\n')
+            f.write(f'Number of variants: {trim_stats["num_variants"]} '
+                    f'({round(trim_stats["num_variants"] / org_stats["num_variants"] * 100, 2)}%)\n')
+            f.write(f'Number of unique DFs: {trim_stats["unique_dfs"]} '
+                    f'({round(trim_stats["unique_dfs"] / org_stats["unique_dfs"] * 100, 2)}%)\n')
+            f.write(f'Total DF occurrences: {trim_stats["total_dfs"]} '
+                    f'({round(trim_stats["total_dfs"] / org_stats["total_dfs"] * 100, 2)}%)\n')
+            f.write(f'Start time: {trim_stats["start_time"]}\n')
+            f.write(f'End time: {trim_stats["end_time"]}\n')
+            
     def get_log_timespan(self, log) -> Tuple[datetime, datetime]:
         """Get log start and end times"""
         timestamps = pm4py.get_event_attribute_values(log, 'time:timestamp')
         return min(timestamps), max(timestamps)
+
+    def _get_log_statistics(self, log) -> Dict[str, Any]:
+        """Get comprehensive statistics about an event log"""
+        try:
+            # Get timespan
+            timestamps = pm4py.get_event_attribute_values(log, 'time:timestamp')
+            start_time = min(timestamps)
+            end_time = max(timestamps)
+            time_length = (end_time - start_time).days
+
+            # Get basic counts
+            num_traces = len(log)
+            num_events = sum(len(trace) for trace in log)
+            
+            # Get unique activities
+            activities = pm4py.get_event_attribute_values(log, 'concept:name')
+            num_activities = len(activities)
+            
+            # Get variants
+            variants = pm4py.get_variants(log)
+            num_variants = len(variants)
+            
+            # Get directly-follows relations
+            dfg, start_activities, end_activities = pm4py.discover_dfg(
+                log,
+                case_id_key='case:concept:name',
+                activity_key='concept:name',
+                timestamp_key='time:timestamp'
+            )
+            unique_dfs = len(dfg)
+            total_dfs = sum(dfg.values())
+
+            # # Create DataFrame and sort by frequency in descending order
+            # df_table = pd.DataFrame(dfg_data)
+            # df_table = df_table.sort_values(by='frequency', ascending=False)
+            #
+            # # Save to CSV
+            # output_path = Path(self.config['paths']['interim']['dfg_tables'])
+            # output_path.mkdir(parents=True, exist_ok=True)
+            # df_table.to_csv(output_path / f'{dataset}_dfg.csv', index=False)
+            #
+            # # Also save as Excel for better visualization
+            # df_table.to_excel(output_path / f'{dataset}_dfg.xlsx', index=False)
+            
+            return {
+                'time_length_days': time_length,
+                'num_traces': num_traces,
+                'num_events': num_events,
+                'num_activities': num_activities,
+                'num_variants': num_variants,
+                'unique_dfs': unique_dfs,
+                'total_dfs': total_dfs,
+                'start_time': start_time,
+                'end_time': end_time
+            }
+        except Exception as e:
+            self.logger.error(f"Error getting log statistics: {e}")
+            raise
