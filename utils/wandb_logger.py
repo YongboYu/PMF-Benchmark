@@ -18,8 +18,7 @@ from utils.evaluation import Evaluator
 
 class WandbLogger:
     def __init__(self, config: Dict[str, Any]):
-        self.project_name = config['project']['wandb_project']
-        self.log_dir = Path('logs/wandb')
+        self.log_dir = Path('logs')
         self.log_dir.mkdir(parents=True, exist_ok=True)
         self.trial_metrics = {}
         self.param_history = {}
@@ -35,16 +34,59 @@ class WandbLogger:
                  model_name: str, config: Dict[str, Any]):
         """Initialize wandb run with consistent structure"""
         self._run = wandb.init(
-            project=self.project_name,
-            name=f"{dataset}_h{horizon}_{model_name}",
-            group=dataset,
-            job_type=f"h{horizon}",
-            tags=[model_group, model_name],
-            config=config,
+            project=f"{config['project']['name']}_{dataset}",
+            entity=config['project']['entity'],
+            name=model_name,
+            group=model_group,
+            job_type=f"horizon_{horizon}",
+            # tags=[model_group, model_name],
+            # config=config,
             reinit=True,
             dir=str(self.log_dir)
         )
         return self._run
+
+    def log_results(self, metrics: Dict[str, Any], model_name: str):
+        """Log average metrics for all points and last points
+
+        Args:
+            metrics: Dictionary containing overall and per-component metrics
+            model_name: Name of the model
+        """
+        # Extract overall metrics
+        overall_metrics = metrics['overall']
+
+        # Log average metrics
+        wandb.log({
+            "average_all_mae": overall_metrics['all_points']['mae'],
+            "average_all_rmse": overall_metrics['all_points']['rmse'],
+            "average_last_mae": overall_metrics['last_point']['mae'],
+            "average_last_rmse": overall_metrics['last_point']['rmse']
+        })
+
+        # Create table data for component metrics
+        table_data = []
+        columns = ["component", "all_mae", "all_rmse", "last_mae", "last_rmse"]
+
+        for component, component_metrics in metrics['per_component'].items():
+            row = [
+                component,
+                component_metrics['all_points']['mae'],
+                component_metrics['all_points']['rmse'],
+                component_metrics['last_point']['mae'],
+                component_metrics['last_point']['rmse']
+            ]
+            table_data.append(row)
+
+        # Create and log wandb Table
+        component_metrics_table = wandb.Table(
+            data=table_data,
+            columns=columns
+        )
+
+        wandb.log({
+            "component_metrics": component_metrics_table
+        })
 
     def log_metrics(self, metrics: Dict[str, float], step: Optional[Union[int, float]] = None,
                    prefix: Optional[str] = None):
@@ -97,13 +139,15 @@ class WandbLogger:
             self._run.finish()
             self._run = None
 
-    def log_predictions(self, predictions: List[TimeSeries], actual: List[TimeSeries], model_name: str):
+    def log_predictions(self, predictions: List[TimeSeries], actual: List[TimeSeries], 
+                       model_name: str, metrics: Dict[str, Any]):
         """Log prediction plots for sequence predictions, showing the last point of each sequence
         
         Args:
             predictions: List of TimeSeries predictions
             actual: List of ground truth TimeSeries
             model_name: Name of the model
+            metrics: Dictionary containing overall and per-component metrics
         """
         # Create evaluator instance with the same config
         evaluator = Evaluator(self.config)
@@ -125,9 +169,20 @@ class WandbLogger:
         if n_components == 1:
             axes = [axes]
         
+        fig.suptitle(f"Model: {model_name}", y=1.02, fontsize=14)
+        
         for i in range(n_components):
             ax = axes[i]
             time_series_name = actual[0].columns[i]
+            
+            # Get component metrics
+            component_metrics = metrics['per_component'][time_series_name]
+            subtitle = f"{time_series_name} (last mae: {component_metrics['last_point']['mae']:.3f}, last rmse: {component_metrics['last_point']['rmse']:.3f})"
+            # subtitle = (f"{time_series_name}: "
+            #            f"all_mae - {component_metrics['all_points']['mae']:.3f}, "
+            #            f"all_rmse - {component_metrics['all_points']['rmse']:.3f}, "
+            #            f"last_mae - {component_metrics['last_point']['mae']:.3f}, "
+            #            f"last_rmse - {component_metrics['last_point']['rmse']:.3f}")
             
             # Plot actual values
             ax.plot(time_points, last_point_actuals[:, i], 
@@ -145,7 +200,7 @@ class WandbLogger:
                            alpha=0.2, color='gray', label='Error Band')
             
             # Customize plot
-            ax.set_title(f"{time_series_name} - Last Point Comparison")
+            ax.set_title(subtitle, pad=10)
             ax.set_xlabel('Time')
             ax.set_ylabel('Value')
             ax.grid(True, alpha=0.3)
@@ -156,13 +211,11 @@ class WandbLogger:
         
         # Log to wandb
         wandb.log({
-            f"{model_name}_last_point_predictions": wandb.Image(fig),
-            f"{model_name}_prediction_stats": {
-                "mean_error": np.mean(np.abs(last_point_preds - last_point_actuals)),
-                "std_error": np.std(np.abs(last_point_preds - last_point_actuals)),
-                "max_error": np.max(np.abs(last_point_preds - last_point_actuals)),
-                "min_error": np.min(np.abs(last_point_preds - last_point_actuals))
-            }
+            f"{model_name}": wandb.Image(fig),
+            # f"{model_name}_prediction_stats": {
+            #     "overall_metrics": metrics['overall'],
+            #     "per_component_metrics": metrics['per_component']
+            # }
         })
         
         plt.close(fig)

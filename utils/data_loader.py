@@ -28,12 +28,17 @@ class DataLoader:
             train, test = series.split_after(train_size)
             return train, None, test
         
-        test_size = self.config['data']['test_split']
-        val_size = self.config['data']['val_split']
+        # Add covariate_regression and DL models to groups that use validation set
+        if model_group in ['regression', 'deep_learning', 'univariate_regression', 
+                          'covariate_regression', 'univariate_dl', 'covariate_dl']:
+            test_size = self.config['data']['test_split']
+            val_size = self.config['data']['val_split']
+            
+            train_val, test = series.split_after(1 - test_size)
+            train, val = train_val.split_after(1 - val_size / (1 - test_size))
+            return train, val, test
         
-        train_val, test = series.split_after(1 - test_size)
-        train, val = train_val.split_after(1 - val_size / (1 - test_size))
-        return train, val, test
+        raise ValueError(f"Unknown model group: {model_group}")
 
     def transform_data(
             self,
@@ -48,14 +53,15 @@ class DataLoader:
             transformer = None
             transform_configs = self.config.get('transformations', {})
             
-            # For baseline, regression, and foundation models, return untransformed data
-            if model_group in ['baseline', 'regression', 'foundation']:
+            # For baseline, regression, univariate_regression, covariate_regression, and foundation models
+            if model_group in ['baseline', 'regression', 'foundation', 'univariate_regression', 'covariate_regression']:
                 return train, val, test, None
             
-            elif model_group == 'deep_learning':
+            # For deep learning models (including both univariate_dl and covariate_dl)
+            elif model_group in ['deep_learning', 'univariate_dl', 'covariate_dl']:
                 transformer = Scaler()
                 train_t = transformer.fit_transform(train)
-                val_t = transformer.transform(val)
+                val_t = transformer.transform(val) if val is not None else None
                 test_t = transformer.transform(test)
                 return train_t, val_t, test_t, transformer
             
@@ -117,7 +123,7 @@ class DataLoader:
 
     def inverse_transform(self, series: TimeSeries, transformer: Any, model_group: str) -> TimeSeries:
         """Inverse transform data"""
-        if model_group in ['baseline', 'regression', 'foundation']:
+        if model_group in ['baseline', 'regression', 'foundation', "univariate_regression", "covariate_regression"]:
             return series
         
         try:
@@ -142,7 +148,7 @@ class DataLoader:
                 # Remove offset
                 return series_no_transform - offset
             
-            else:  # deep_learning
+            else:  # deep_learning, univariate_dl, covariate_dl
                 return transformer.inverse_transform(series)
             
         except Exception as e:
