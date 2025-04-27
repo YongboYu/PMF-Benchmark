@@ -57,6 +57,13 @@ class BaselineModels:
         """Initialize baseline model with or without parameters"""
         params = model_info.get('params', {})
 
+        # if self.wandb_logger is not None:
+        #     wandb.config.update({
+        #         "model_params": {
+        #             model_name: params
+        #         }
+        #     })
+
         if model_name == "naive_mean":
             return NaiveMean()
         elif model_name == "persistence":
@@ -81,8 +88,21 @@ class BaselineModels:
             logger.info(f"Model {model_name} not found")
             return {}
 
-        wandb.log({f"baseline_training_model": model_name})
-        start_time = time.time()
+        # Get model configuration parameters
+        model_info = self.model_config['models'].get(model_name, {})
+        model_params = model_info.get('params', {})
+
+        # Update wandb config with just the model parameters in a single dictionary
+        if self.wandb_logger is not None:
+            wandb.config.update({
+                "model_params": {
+                    model_name: model_params
+                }
+            })
+
+        # Log that we're starting to train this model
+        # wandb.log({f"baseline_training_model": model_name})
+
 
         try:
             model = self.models[model_name]
@@ -93,6 +113,8 @@ class BaselineModels:
                 test=test,
                 horizon=horizon
             )
+
+            start_time = time.time()
 
             # Generate predictions using expanding window inputs
             all_predictions = []
@@ -106,22 +128,24 @@ class BaselineModels:
             # Calculate training time
             training_time = time.time() - start_time
 
-            # Log metrics if wandb_logger is available
-            if wandb_logger:
-                wandb_logger.log_metrics({
-                    'training_time': training_time,
-                    'model_type': str(type(model).__name__),
-                    'horizon': horizon,
-                    'dataset': dataset
-                }, prefix=model_name)
+            wandb.log({"training_time": training_time})
 
-                # Log model artifacts
-                wandb_logger.log_model_artifacts(model_name, {
-                    'model_type': str(type(model).__name__),
-                    'training_time': training_time,
-                    'dataset': dataset,
-                    'horizon': horizon
-                })
+            # Log metrics if wandb_logger is available
+            # if wandb_logger:
+                # wandb_logger.log_metrics({
+                #     'training_time': training_time,
+                #     'model_type': str(type(model).__name__),
+                #     'horizon': horizon,
+                #     'dataset': dataset
+                # }, prefix=model_name)
+                #
+                # # Log model artifacts
+                # wandb_logger.log_model_artifacts(model_name, {
+                #     'model_type': str(type(model).__name__),
+                #     'training_time': training_time,
+                #     'dataset': dataset,
+                #     'horizon': horizon
+                # })
 
             return {
                 'predictions': all_predictions,
@@ -134,11 +158,11 @@ class BaselineModels:
         except Exception as e:
             error_msg = f"Error training {model_name}: {str(e)}"
             logger.error(error_msg)
-            if wandb_logger:
-                wandb_logger.log_metrics({
-                    "error": str(e),
-                    "failed": True
-                }, prefix=model_name)
+            # if wandb_logger:
+            #     wandb_logger.log_metrics({
+            #         "error": str(e),
+            #         "failed": True
+            #     }, prefix=model_name)
             raise
 
     def get_model_names(self) -> List[str]:
