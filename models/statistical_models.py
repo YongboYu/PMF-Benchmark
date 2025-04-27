@@ -1,4 +1,5 @@
 from darts.models import (
+    ARIMA,
     AutoARIMA,
     ExponentialSmoothing,
     TBATS,
@@ -61,18 +62,28 @@ class StatisticalModels:
         params = model_info.get('params', {})
 
         try:
-            if model_name == "auto_arima":
+            if model_name == "ar2":
+                return ARIMA(**params)
+            elif model_name == "arima":
+                return ARIMA(**params)
+            elif model_name == "auto_arima":
                 return AutoARIMA(**params)
             elif model_name == "exp_smoothing":
                 # Convert string parameters to ModelMode enums
                 if 'trend' in params:
-                    params['trend'] = (ModelMode.ADDITIVE
-                                     if params['trend'] == 'additive'
-                                     else ModelMode.MULTIPLICATIVE)
+                    if params['trend'] == 'additive':
+                        params['trend'] = ModelMode.ADDITIVE
+                    elif params['trend'] == 'multiplicative':
+                        params['trend'] = ModelMode.MULTIPLICATIVE
+                    else :
+                        params['trend'] = ModelMode.NONE
                 if 'seasonal' in params:
-                    params['seasonal'] = (SeasonalityMode.ADDITIVE
-                                        if params['seasonal'] == 'additive'
-                                        else SeasonalityMode.MULTIPLICATIVE)
+                    if params['seasonal'] == 'additive':
+                        params['seasonal'] = SeasonalityMode.ADDITIVE
+                    elif params['seasonal'] == 'multiplicative':
+                        params['seasonal'] = SeasonalityMode.MULTIPLICATIVE
+                    else :
+                        params['seasonal'] = SeasonalityMode.NONE
                 return ExponentialSmoothing(**params)
             elif model_name == "tbats":
                 return TBATS(**params)
@@ -111,8 +122,16 @@ class StatisticalModels:
             logger.info(f"Model {model_name} not found")
             return {}
 
-        wandb.log({f"statistical_training_model": model_name})
-        start_time = time.time()
+        model_info = self.model_config['models'].get(model_name, {})
+        model_params = model_info.get('params', {})
+
+        if self.wandb_logger is not None:
+            wandb.config.update({
+                "model_params": {
+                    model_name: model_params
+                }
+            })
+
 
         try:
             # Create expanding window test dataset
@@ -122,11 +141,13 @@ class StatisticalModels:
                 test=test,
                 horizon=horizon
             )
-            
+
+            start_time = time.time()
+
             # Train separate model for each component
             all_component_predictions = []
             trained_models = []
-            
+
             for component in train.components:
                 component_predictions = []
                 
@@ -157,25 +178,26 @@ class StatisticalModels:
 
             # Calculate training time
             training_time = time.time() - start_time
+            wandb.log({"training_time": training_time})
 
-            # Log metrics if wandb_logger is available
-            if wandb_logger:
-                wandb_logger.log_metrics({
-                    'training_time': training_time,
-                    'n_components': len(train.components),
-                    'model_type': model_name,
-                    'horizon': horizon,
-                    'dataset': dataset
-                }, prefix=model_name)
-
-                # Log model artifacts
-                wandb_logger.log_model_artifacts(model_name, {
-                    'model_type': model_name,
-                    'n_components': len(train.components),
-                    'training_time': training_time,
-                    'dataset': dataset,
-                    'horizon': horizon
-                })
+            # # Log metrics if wandb_logger is available
+            # if wandb_logger:
+            #     wandb_logger.log_metrics({
+            #         'training_time': training_time,
+            #         'n_components': len(train.components),
+            #         'model_type': model_name,
+            #         'horizon': horizon,
+            #         'dataset': dataset
+            #     }, prefix=model_name)
+            #
+            #     # Log model artifacts
+            #     wandb_logger.log_model_artifacts(model_name, {
+            #         'model_type': model_name,
+            #         'n_components': len(train.components),
+            #         'training_time': training_time,
+            #         'dataset': dataset,
+            #         'horizon': horizon
+            #     })
 
             return {
                 'predictions': all_predictions,
@@ -188,11 +210,11 @@ class StatisticalModels:
         except Exception as e:
             error_msg = f"Error training {model_name}: {str(e)}"
             logger.error(error_msg)
-            if wandb_logger:
-                wandb_logger.log_metrics({
-                    "error": str(e),
-                    "failed": True
-                }, prefix=model_name)
+            # if wandb_logger:
+            #     wandb_logger.log_metrics({
+            #         "error": str(e),
+            #         "failed": True
+            #     }, prefix=model_name)
             raise
 
     def get_model_names(self) -> List[str]:

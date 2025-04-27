@@ -1,7 +1,21 @@
 # config/model_configs/statistical_models.yaml
 models:
-  auto_arima:
+  ar2:
     enabled: true
+    params:
+      p: 2
+      d: 0
+      q: 0
+
+  arima:
+    enabled: true
+    params:
+      p: 2
+      d: 1
+      q: 2
+
+  auto_arima:
+    enabled: false
     params:
       seasonal: true
       m: 7  # Weekly seasonality
@@ -19,31 +33,33 @@ models:
   exp_smoothing:
     enabled: true
     params:
-      trend: "additive"      # ModelMode.ADDITIVE
-      seasonal: "multiplicative"  # SeasonalityMode.MULTIPLICATIVE
-      seasonal_periods: 7    # Weekly seasonality
+      trend: "None"
+      seasonal: "None"
+#      trend: "additive"      # ModelMode.ADDITIVE
+#      seasonal: "multiplicative"  # SeasonalityMode.MULTIPLICATIVE
+#      seasonal_periods: 7    # Weekly seasonality
 
   tbats:
-    enabled: true
+    enabled: false
     params:
       n_jobs: 4  # Explicitly set to number of available CPUs
 #      seasonal_periods: [ 7 ]
-      use_arma_errors: true
-      use_box_cox: false
+#      use_arma_errors: true
+#      use_box_cox: false
       use_trend: true
 
   theta:
     enabled: true
     params:
       theta: 2
-      season_mode: "additive"
+#      season_mode: "additive"
 
   four_theta:
     enabled: true
     params:
       theta: 2
-      season_mode: "additive"
-      model_mode: "additive"
+#      season_mode: "additive"
+#      model_mode: "additive"
 
   prophet:
     enabled: true
