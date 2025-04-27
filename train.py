@@ -28,6 +28,10 @@ from utils.wandb_logger import WandbLogger
 from utils.optuna_manager import OptunaManager
 from utils.logging_manager import get_logging_manager
 from models.foundation_models import FoundationModels
+from models.univariate_regression_models import UnivariateRegressionModels
+from models.covariate_regression_models import CovariateRegressionModels
+from models.univariate_dl_models import UnivariateDLModels
+from models.covariate_dl_models import CovariateDLModels
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +66,11 @@ class ModelTrainer:
             'statistical': StatisticalModels,
             'regression': RegressionModels,
             'deep_learning': DeepLearningModels,
-            'foundation': FoundationModels
+            'foundation': FoundationModels,
+            'univariate_regression': UnivariateRegressionModels,
+            'covariate_regression': CovariateRegressionModels,
+            'univariate_dl': UnivariateDLModels,
+            'covariate_dl': CovariateDLModels
         }
 
     def train_single_model(self, dataset: str, model_group: str, model_name: str, horizon: int) -> Dict[str, Any]:
@@ -87,14 +95,15 @@ class ModelTrainer:
                 horizon=horizon,
                 model_group=model_group,
                 model_name=model_name,
-                config=self.config["model_configs"].get(f"{model_group}_models", {})
+                # config=self.config["model_configs"].get(f"{model_group}_models", {})
+                config=self.config
             ):
                 try:
                     # Set the wandb_logger instance in the model
                     if hasattr(model, 'wandb_logger'):
                         model.wandb_logger = wandb_logger
 
-                    start_time = time.time()
+                    # start_time = time.time()
 
                     # Train and get predictions
                     model_results = model.train_and_predict(
@@ -108,7 +117,7 @@ class ModelTrainer:
                         wandb_logger=wandb_logger
                     )
 
-                    training_time = time.time() - start_time
+                    # training_time = time.time() - start_time
 
                     if model_results.get('predictions') and model_results.get('actuals'):
                         # Inverse transform predictions if needed
@@ -121,37 +130,43 @@ class ModelTrainer:
                             for act in model_results['actuals']
                         ]
 
+
                         metrics = self.evaluator.evaluate_sequence_predictions(
                             predictions=predictions,
                             actuals=actuals,
                         )
+
+                        wandb_logger.log_predictions(predictions, actuals, model_name, metrics)
+                        wandb_logger.log_results(metrics, model_name)
 
                         # Save results and metrics
                         result_dict = {
                             'model_name': model_group,
                             'specific_model': model_name,
                             'metrics': {
-                                'all_points': metrics['all_points'],
-                                'last_point': metrics['last_point']
+                                'all_points': metrics['overall']['all_points'],
+                                'last_point': metrics['overall']['last_point']
                             },
-                            'training_time': training_time,
+                            'training_time': model_results['training_time'],
                             'model': model_results['model'],
                             'best_params': model_results.get('best_params', {})
                         }
 
-                        # Save individual model results
-                        self.evaluator.save_model_result(
+                        # Save all results using the evaluator
+                        saved_paths = self.evaluator.save_all_results(
+                            model_results=result_dict,
                             dataset=dataset,
-                            model_group=model_group,
-                            model_name=model_name,
                             horizon=horizon,
-                            metrics=metrics,
-                            training_time=training_time
+                            predictions=predictions
                         )
 
-                        metrics_with_time = {**metrics, 'training_time': training_time}
-                        wandb_logger.log_metrics(metrics_with_time)
-                        wandb_logger.log_predictions(predictions, actuals, model_name)
+                        # Add saved paths to results
+                        result_dict.update(saved_paths)
+
+                        # metrics_with_time = {**metrics, 'training_time': training_time}
+                        # wandb_logger.log_metrics(metrics_with_time)
+
+
 
                         results[model_name] = result_dict
 
@@ -190,12 +205,15 @@ def main():
     parser = argparse.ArgumentParser(description='Train time series forecasting models')
     parser.add_argument('--dataset', type=str, required=True, help='Dataset name')
     parser.add_argument('--model_group', type=str, required=True, 
-                       choices=['baseline', 'statistical', 'regression', 'deep_learning', 'foundation', 'all'],
+                       choices=['baseline', 'statistical', 'regression', 
+                               'univariate_regression', 'covariate_regression',
+                               'deep_learning', 'univariate_dl', 'covariate_dl',
+                               'foundation', 'all'],
                        help='Model group to train')
     parser.add_argument('--model', type=str, required=False,
                        help='Specific model to train within the model group')
     parser.add_argument('--horizon', type=int, required=True,
-                       choices=[1, 3, 7], help='Prediction horizon')
+                       choices=[7, 28], help='Prediction horizon')
     parser.add_argument('--config', type=str, default='config/base_config.yaml',
                        help='Path to configuration file')
     
