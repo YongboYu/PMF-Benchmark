@@ -21,5 +21,10 @@ dependencies = [
     "seaborn>=0.13.2",
     "optuna-dashboard>=0.17.0",
     "nixtla>=0.6.6",
+    "pyarrow>=18.1.0",
+    "hydra-core>=1.3.2",
+    "optuna-integration>=4.2.1",
+    "pydot>=3.0.4",
+    "reportlab>=4.4.0",
 ]
 
