@@ -79,7 +79,7 @@ class FoundationModels:
             logger.info(f"Model {model_name} not found")
             return {}
 
-        wandb.log({f"foundation_training_model": model_name})
+        # wandb.log({f"foundation_training_model": model_name})
         start_time = time.time()
 
         try:
@@ -121,25 +121,27 @@ class FoundationModels:
 
             # Calculate training time
             training_time = time.time() - start_time
+            wandb.log({"training_time": training_time})
+
 
             # Log metrics if wandb_logger is available
-            if wandb_logger:
-                wandb_logger.log_metrics({
-                    'training_time': training_time,
-                    'n_components': len(train.components),
-                    'model_type': model_name,
-                    'horizon': horizon,
-                    'dataset': dataset
-                }, prefix=model_name)
-
-                # Log model artifacts
-                wandb_logger.log_model_artifacts(model_name, {
-                    'model_type': model_name,
-                    'n_components': len(train.components),
-                    'training_time': training_time,
-                    'dataset': dataset,
-                    'horizon': horizon
-                })
+            # if wandb_logger:
+            #     wandb_logger.log_metrics({
+            #         'training_time': training_time,
+            #         'n_components': len(train.components),
+            #         'model_type': model_name,
+            #         'horizon': horizon,
+            #         'dataset': dataset
+            #     }, prefix=model_name)
+            #
+            #     # Log model artifacts
+            #     wandb_logger.log_model_artifacts(model_name, {
+            #         'model_type': model_name,
+            #         'n_components': len(train.components),
+            #         'training_time': training_time,
+            #         'dataset': dataset,
+            #         'horizon': horizon
+            #     })
 
             return {
                 'predictions': all_predictions,
@@ -152,11 +154,11 @@ class FoundationModels:
         except Exception as e:
             error_msg = f"Error training {model_name}: {str(e)}"
             logger.error(error_msg)
-            if wandb_logger:
-                wandb_logger.log_metrics({
-                    "error": str(e),
-                    "failed": True
-                }, prefix=model_name)
+            # if wandb_logger:
+            #     wandb_logger.log_metrics({
+            #         "error": str(e),
+            #         "failed": True
+            #     }, prefix=model_name)
             raise
 
     def get_model_names(self) -> List[str]:
