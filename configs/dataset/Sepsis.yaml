@@ -1,0 +1,9 @@
+# @package dataset
+name: "Sepsis"
+description: "Sepsis Cases - Event Log - Events of sepsis cases from a hospital"
+url: "https://data.4tu.nl/articles/dataset/Sepsis_Cases_-_Event_Log/12707639"
+direct_download: "https://data.4tu.nl/file/33632f3c-5c48-40cf-8d8f-2db57f5a6ce7/643dccf2-985a-459e-835c-a82bce1c0339"
+file_format: "xes.gz"
+file_size: "5.4 MB"
+file_name: "Sepsis Cases - Event Log.xes.gz"
+

@@ -1,0 +1,14 @@
+# @package dataset
+name: "BPI2019_1"
+description: "BPI Challenge 2019 - Purchase-to-pay process of a multinational company"
+url: "https://data.4tu.nl/articles/dataset/BPI_Challenge_2019/12715853/1"
+direct_download: "https://data.4tu.nl/file/35ed7122-966a-484e-a0e1-749b64e3366d/864493d1-3a58-47f6-ad6f-27f95f995828"
+file_format: "xes"
+file_size: "729 MB"
+file_name: "BPI_Challenge_2019.xes"
+
+filter_attribute: "case:Item Category"
+category: "3-way match, invoice before GR"
+filter_start_time: "2018-01-01 00:00:00"
+filter_end_time: "2019-01-28 23:59:59"
+

@@ -1,0 +1,9 @@
+# @package dataset
+name: "Hospital_Billing"
+description: "Hospital Billing - Financial modules of the ERP system of a regional hospital"
+url: "https://data.4tu.nl/articles/dataset/Hospital_Billing_-_Event_Log/12705113"
+direct_download: "https://data.4tu.nl/file/6af6d5f0-f44c-49be-aac8-8eaa5fe4f6fd/28b83e72-375e-4da4-8459-a8506e898edf"
+file_format: "xes.gz"
+file_size: "174 MB"
+file_name: "Hospital Billing - Event Log.xes.gz"
+

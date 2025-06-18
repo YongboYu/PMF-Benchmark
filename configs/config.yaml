@@ -1,0 +1,53 @@
+# @package _global_
+#defaults:
+#  - dataset: all
+#  - preprocessing: default
+#  - model: all
+#  - training: local
+#  - evaluation: [standard, entropic_relevance]
+#  - logging: wandb
+#  - optimization: optuna
+#  - _self_
+
+# Project metadata
+project:
+  name: "PMF_Benchmark"
+  version: "0.1.0"
+  description: "Process Model Forecasting Benchmark"
+  author: "yongboyu"
+
+# Data configuration
+data:
+  dataset: all
+
+# Experiment configuration
+experiment:
+  name: ${data.dataset}_all_models_h${data.horizon}
+  tags:
+    - ${data.dataset}
+    - "all_models"
+    - horizon_${data.horizon}
+    - "multi_evaluation"
+  seed: 42
+
+# Paths configuration
+paths:
+  data_dir: data
+  raw_data_dir: ${paths.data_dir}/raw
+  interim_data_dir: ${paths.data_dir}/interim
+  processed_data_dir: ${paths.data_dir}/processed
+  results_dir: results
+  logs_dir: logs
+
+save_models: false
+
+## Hydra configuration
+#hydra:
+#  run:
+#    dir: ${paths.logs_dir}/runs/${experiment.name}/${now:%Y-%m-%d_%H-%M-%S}
+#  sweep:
+#    dir: ${paths.logs_dir}/sweeps/${experiment.name}/${now:%Y-%m-%d_%H-%M-%S}
+#    subdir: ${hydra:job.num}
+#  job:
+#    name: ${experiment.name}
+#    chdir: true
