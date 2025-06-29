@@ -48,7 +48,7 @@ This framework enables researchers and practitioners to:
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/PMF_Benchmark.git
+git clone https://github.com/YongboYu/PMF_Benchmark.git
 cd PMF_Benchmark
 
 # Create virtual environment
@@ -61,6 +61,30 @@ pip install -e .
 # Optional: Initialize Weights & Biases
 wandb login
 ```
+
+### Data Download
+
+Before running any experiments, you need to download the benchmark datasets. The framework provides an automated download script that handles all dataset acquisition and preprocessing:
+
+```bash
+# Download all available datasets
+python download_data.py
+
+# Download a specific dataset
+python download_data.py dataset=BPI2017
+python download_data.py dataset=BPI2019_1
+python download_data.py dataset=Hospital_Billing
+python download_data.py dataset=sepsis
+
+# Force re-download existing datasets
+python download_data.py dataset=BPI2017 force=true
+```
+
+The script will:
+- Download datasets from their official sources
+- Extract compressed files automatically
+- Apply dataset-specific filtering (e.g., BPI2019 category filtering)
+- Save processed datasets to `data/raw/` directory
 
 ### Basic Usage
 
@@ -91,50 +115,6 @@ python run_er_evaluation.py --dataset BPI2017 --horizon 7
 - **Datasets**: `BPI2017`, `BPI2019_1`, `Hospital_Billing`, `sepsis`
 - **Model Groups**: `baseline`, `statistical`, `regression`, `deep_learning`, `foundation`
 - **Horizons**: `7`, `28` (days)
-
-## Project Structure
-
-```
-PMF_Benchmark/
-├── configs/                    # Configuration files
-│   ├── base_config.yaml       # Base configuration
-│   ├── dataset/               # Dataset-specific configs
-│   └── model_configs/         # Model-specific configurations
-│
-├── models/                     # Model implementations
-│   ├── baseline_models.py     # Naive forecasting models
-│   ├── statistical_models.py  # ARIMA, Prophet, etc.
-│   ├── regression_models.py   # Traditional ML models
-│   ├── deep_learning_models.py # Neural networks
-│   └── foundation_models.py   # Pre-trained models
-│
-├── preprocessing/              # Data preprocessing
-│   ├── event_log_processor.py # Event log preprocessing
-│   ├── df_generator.py        # DF relation extraction
-│   └── time_series_creator.py # Time series generation
-│
-├── utils/                      # Utility functions
-│   ├── data_loader.py         # Data loading utilities
-│   ├── evaluation.py          # Model evaluation
-│   ├── logging_manager.py     # Logging configuration
-│   ├── optuna_manager.py      # Hyperparameter optimization
-│   └── wandb_logger.py        # Experiment tracking
-│
-├── data/                       # Data organization
-│   ├── raw/                   # Original event logs
-│   ├── interim/               # Intermediate processing
-│   ├── processed/             # Final time series
-│   └── ground_truth/          # Ground truth data
-│
-├── results/                    # Experiment results
-│   ├── evaluation/            # Model evaluation metrics
-│   ├── predictions/           # Model predictions
-│   └── models/                # Saved models
-│
-├── scripts/                    # Execution scripts
-├── tests/                      # Test scripts
-└── notebooks/                  # Analysis notebooks
-```
 
 ## Data Pipeline
 
@@ -191,7 +171,3 @@ If you find this repository helpful for your work, please consider citing our pa
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
----
-
-For detailed documentation, tutorials, and API reference, visit our [documentation](docs/) or explore the `notebooks/` directory for usage examples.
